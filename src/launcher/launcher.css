@@ -1,0 +1,62 @@
+:root {
+  --ink: #2C2C2A;
+  --ink2: #5F5E5A;
+  --ink3: #888780;
+  --line: #E4E2DC;
+  --paper: #F7F6F3;
+  --card: #FFFFFF;
+  --brand: #0F6E56;
+  --brand-soft: #E3F1EC;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.55;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+header { text-align: center; padding: 30px 20px 8px; }
+header h1 { font-size: 22px; letter-spacing: .5px; }
+header p { color: var(--ink3); font-size: 13px; margin-top: 4px; }
+
+main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px 22px;
+  justify-content: center;
+}
+
+.mode {
+  text-align: left;
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 12px;
+  row-gap: 4px;
+  padding: 18px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--ink);
+  transition: border-color .15s, box-shadow .15s;
+}
+.mode:hover { border-color: var(--brand); box-shadow: 0 2px 14px rgba(15, 110, 86, .12); }
+.mode:active { transform: translateY(1px); }
+
+.mode .emoji { grid-row: 1 / span 2; font-size: 28px; align-self: center; text-align: center; }
+.mode .t { font-weight: 700; font-size: 16px; }
+.mode:hover .t { color: var(--brand); }
+.mode .d { color: var(--ink2); font-size: 12.5px; }
+
+footer { text-align: center; color: var(--ink3); font-size: 12px; padding: 10px 0 18px; }

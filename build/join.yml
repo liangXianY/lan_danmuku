@@ -1,0 +1,38 @@
+# 加入版：发给别人用的，只能连主机——自己屏幕上同步显示弹幕，也能发言
+# 没有 HTTP 服务、没有房间、没有控制台；托盘里也没有"切换模式"
+appId: com.liangbai.lan-danmaku.join
+productName: LAN Danmaku Join
+
+directories:
+  output: dist/join
+  buildResources: build
+
+files:
+  - src/**/*
+  - assets/**/*
+  - package.json
+
+extraMetadata:
+  appMode: join
+  productName: LAN Danmaku Join
+
+win:
+  icon: build/icon.ico
+  executableName: LAN-Danmaku-Join
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  shortcutName: 局域网弹幕 · 加入版
+  artifactName: LAN-Danmaku-Join-${version}-Setup.${ext}
+
+portable:
+  artifactName: LAN-Danmaku-Join-${version}-Portable.${ext}

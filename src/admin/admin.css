@@ -1,0 +1,84 @@
+:root {
+  --bg: #F7F6F3;
+  --card: #FFFFFF;
+  --ink: #26323C;
+  --sub: #7A8794;
+  --line: #E5E2DB;
+  --accent: #0C447C;
+  --danger: #C0392B;
+  --ok: #1F7A4D;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  font-size: 14px;
+}
+
+main {
+  max-width: 560px;
+  margin: 32px auto;
+  padding: 0 16px;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 16px;
+}
+
+h1 { font-size: 18px; margin: 0 0 6px; }
+h2 { font-size: 14px; margin: 22px 0 6px; }
+
+.head { display: flex; align-items: center; justify-content: space-between; }
+
+.stat { text-align: right; }
+.stat span { font-size: 22px; font-weight: 700; color: var(--accent); }
+.stat small { color: var(--sub); margin-left: 4px; }
+
+.row { display: flex; gap: 8px; margin: 10px 0; align-items: center; flex-wrap: wrap; }
+.row.end { justify-content: flex-end; }
+.row input[type="text"], .row input[type="password"] {
+  flex: 1;
+  min-width: 160px;
+}
+
+input[type="text"], input[type="password"], select, textarea {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 10px;
+  font: inherit;
+  color: var(--ink);
+  background: #FCFBF9;
+  outline: none;
+}
+input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+textarea { width: 100%; resize: vertical; line-height: 1.6; }
+
+.btn {
+  border: 1px solid var(--line);
+  background: #FFF;
+  border-radius: 8px;
+  padding: 9px 16px;
+  font: inherit;
+  cursor: pointer;
+  color: var(--ink);
+}
+.btn:hover { background: #F2F0EB; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #FFF; }
+.btn.primary:hover { background: #0A3A69; }
+.btn.danger { color: var(--danger); border-color: #E5B8B2; }
+.btn.danger:hover { background: #FBF0EE; }
+.btn.ghost { border-color: transparent; background: transparent; color: var(--sub); }
+
+.tip { color: var(--sub); font-size: 12.5px; line-height: 1.7; margin: 4px 0; }
+.tip.err { color: var(--danger); }
+.tip.ok { color: var(--ok); }
+
+label { color: var(--sub); font-size: 13px; display: flex; align-items: center; gap: 6px; }

@@ -1,0 +1,18 @@
+{
+  "frame": {
+    "w": 96,
+    "h": 104
+  },
+  "fps": 8,
+  "rows": {
+    "idle": 6,
+    "run-right": 8,
+    "run-left": 8,
+    "waving": 4,
+    "jumping": 5,
+    "failed": 8,
+    "waiting": 6,
+    "running": 6,
+    "review": 6
+  }
+}

@@ -1,0 +1,40 @@
+# 主机版：装完就是弹幕服务器，建房间 + 本机弹幕层 + 控制台
+# 与加入版的区别只有三处：appId / productName / extraMetadata.appMode
+# 其中 appMode 会被写进打包后的 package.json，运行时把模式锁死，
+# 用户在主机版里再也切不到加入模式（反之亦然）。
+appId: com.liangbai.lan-danmaku.host
+productName: LAN Danmaku Host
+
+directories:
+  output: dist/host
+  buildResources: build
+
+files:
+  - src/**/*
+  - assets/**/*
+  - package.json
+
+extraMetadata:
+  appMode: host
+  productName: LAN Danmaku Host
+
+win:
+  icon: build/icon.ico
+  executableName: LAN-Danmaku-Host
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  shortcutName: 局域网弹幕 · 主机版
+  artifactName: LAN-Danmaku-Host-${version}-Setup.${ext}
+
+portable:
+  artifactName: LAN-Danmaku-Host-${version}-Portable.${ext}

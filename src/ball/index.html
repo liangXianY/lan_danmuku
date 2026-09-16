@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:">
+<title>发弹幕</title>
+<link rel="stylesheet" href="./ball.css">
+</head>
+<body>
+
+<div class="shell" id="shell">
+
+  <!-- 展开后的输入条：位于小鸡左侧 -->
+  <div class="panel" id="panel" hidden>
+
+    <!-- ① 发送视图 -->
+    <div class="view" id="composeView">
+      <div class="compose-top">
+        <input id="text" type="text" maxlength="60" placeholder="说点什么，回车发送"
+               spellcheck="false" autocomplete="off">
+        <button id="send" class="send" title="发送" aria-label="发送">
+          <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true">
+            <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" />
+            <path d="m21.854 2.147-10.94 10.939" />
+          </svg>
+        </button>
+      </div>
+      <div class="compose-token" id="tokenRow" hidden>
+        <input id="tokenInput" type="text" maxlength="32" placeholder="这个房间需要口令，填完回车"
+               spellcheck="false" autocomplete="off">
+      </div>
+      <div class="compose-bottom">
+        <div class="colors" id="colors"></div>
+        <button id="who" class="who" title="点这里改昵称 / 匿名"></button>
+        <span class="tips" id="tips"></span>
+      </div>
+    </div>
+
+    <!-- ② 身份视图：第一次用时先设昵称或选匿名，之后不再打扰 -->
+    <div class="view" id="identityView" hidden>
+      <div class="compose-top">
+        <input id="nameInput" type="text" maxlength="12" placeholder="给自己起个名字"
+               spellcheck="false" autocomplete="off">
+        <button id="nameSave" class="send" title="保存">好</button>
+      </div>
+      <div class="compose-bottom">
+        <label class="anon" title="勾上之后弹幕只会显示「匿名」">
+          <input type="checkbox" id="anonCheck">
+          <span class="knob"></span>
+          <span>匿名</span>
+        </label>
+        <span class="tips" id="identityTips">之后每次发言都用这个身份</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 桌宠：像素小鸡，收起态就是它，展开态贴在输入条右下角 -->
+  <div class="pet-wrap" id="petWrap" title="发弹幕（拖动可移动）">
+    <div class="pet" id="pet"></div>
+    <span class="pet-dot" id="ballDot"></span>
+  </div>
+</div>
+
+<script src="./ball.js"></script>
+</body>
+</html>

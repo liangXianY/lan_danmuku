@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; font-src 'self'">
+<title>LAN Danmaku 控制台</title>
+<link rel="stylesheet" href="./control.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="top-left">
+    <span class="dot" id="dot"></span>
+    <div>
+      <div class="top-title" id="statusTitle">正在启动…</div>
+      <div class="top-sub" id="statusSub">弹幕服务初始化中</div>
+    </div>
+  </div>
+  <div class="top-right">
+    <div class="stat"><span id="online">0</span><small>在线</small></div>
+  </div>
+</header>
+
+<main>
+
+  <div class="alert" id="alertBox" hidden>
+    <strong id="alertTitle"></strong>
+    <p id="alertText"></p>
+    <div class="alert-actions">
+      <button class="btn small" id="alertAction" hidden></button>
+      <button class="btn small ghost" id="alertAction2" hidden>打开防火墙设置</button>
+    </div>
+  </div>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>让同网设备打开这个地址</h2>
+      <button class="btn small ghost" id="copyBtn">复制</button>
+    </div>
+    <div class="url" id="url">—</div>
+    <div class="url-meta" id="urlMeta"></div>
+    <div class="qr-wrap">
+      <img id="qr" alt="访问二维码" hidden>
+      <div class="qr-hint" id="qrHint">同一交换机 / 同一网段的设备扫码或输入上面的地址即可发送。</div>
+    </div>
+    <div class="row" id="adapterRow" hidden>
+      <label for="adapter">网卡</label>
+      <select id="adapter"></select>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>公网访问（内网穿透）</h2>
+      <button class="btn small ghost" id="tunnelCopyBtn" hidden>复制地址</button>
+    </div>
+    <p class="tip">一键把本机服务穿透到公网（Cloudflare 免费隧道）。任何网络的人打开地址就能发弹幕，加入端也能远程连接。地址随机，重开会变。</p>
+    <div class="row">
+      <button class="btn primary" id="tunnelBtn">一键开启公网</button>
+      <button class="btn" id="tunnelStopBtn" hidden>关闭隧道</button>
+    </div>
+    <div class="url" id="tunnelUrl" hidden></div>
+    <p class="tip" id="tunnelWaiting" hidden>正在建立隧道，一般 10 秒左右…</p>
+    <p class="tip" id="tunnelErr" hidden></p>
+  </section>
+
+  <section class="card">
+    <h2>房间口令</h2>
+    <div class="row">
+      <label for="roomToken">口令</label>
+      <input id="roomToken" type="text" maxlength="32" placeholder="留空 = 任何人可直接发言" spellcheck="false" autocomplete="off">
+      <button class="btn small" id="saveRoomToken">保存</button>
+    </div>
+    <p class="tip" id="roomTokenTip">设置后，浏览器发送页和加入端都要填这个口令才能发弹幕（观看不受限），填错会被降级为只看。改动即时生效。</p>
+  </section>
+
+  <section class="card">
+    <h2>快捷操作</h2>
+    <div class="actions">
+      <button class="btn primary" id="togglePause">暂停上屏</button>
+      <button class="btn" id="clearBtn">清空屏幕</button>
+      <button class="btn" id="recheckBtn">重新自检</button>
+      <button class="btn" id="restartBtn">重启服务</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>匿名模式</h2>
+    <label class="check">
+      <input type="checkbox" id="anonMode">
+      <span>关闭所有人的匿名（发送端必须填昵称才能发言）</span>
+    </label>
+    <p class="tip">服务器级开关：勾上后所有连接的发送端（浏览器发送页、加入端、桌宠）都不能匿名，没填昵称的发言会被拒绝并提示去填名字。不勾时允许匿名。改动即时生效。</p>
+  </section>
+
+  <section class="card">
+    <h2>发送固定弹幕</h2>
+    <textarea id="fixedText" rows="2" placeholder="要公告的内容，比如：中场休息 10 分钟"></textarea>
+    <div class="row three">
+      <div>
+        <label for="fixedPosition">显示位置</label>
+        <select id="fixedPosition">
+          <option value="top">屏幕上方</option>
+          <option value="center">屏幕中间</option>
+          <option value="bottom">屏幕下方</option>
+        </select>
+      </div>
+      <div>
+        <label for="fixedStay">停留(秒)</label>
+        <input type="number" id="fixedStay" min="1" max="30" step="0.5">
+      </div>
+      <div>
+        <label for="fixedStyle">样式</label>
+        <select id="fixedStyle">
+          <option value="card">卡片</option>
+          <option value="plain">纯文字</option>
+          <option value="bubble">气泡</option>
+        </select>
+      </div>
+    </div>
+    <div class="row">
+      <label>颜色</label>
+      <div class="swatches" id="fixedColors"></div>
+    </div>
+    <div class="row end">
+      <button class="btn primary" id="sendFixedBtn">发送</button>
+    </div>
+    <p class="tip">固定弹幕不滚动：显示在每个加入端屏幕的所选位置，停留设定时间后自动消失。Ctrl+回车 也能发送。</p>
+  </section>
+
+  <details>
+    <summary>内容与限流</summary>
+    <div class="card">
+      <div class="row">
+        <label for="port">监听端口</label>
+        <input type="number" id="port" min="1024" max="65535" step="1">
+      </div>
+      <p class="tip">改完端口服务会自动重启，所有已连接设备需要重新打开页面。</p>
+
+      <div class="row two">
+        <div>
+          <label for="rateMax">限流条数</label>
+          <input type="number" id="rateMax" min="1" max="60" step="1">
+        </div>
+        <div>
+          <label for="rateWindowMs">时间窗口(秒)</label>
+          <input type="number" id="rateWindow" min="1" max="60" step="1">
+        </div>
+      </div>
+      <p class="tip">每个 IP 在窗口期内最多发这么多条，超出会被拒。</p>
+
+      <label class="block" for="blockedWords">屏蔽词（一行一个）</label>
+      <textarea id="blockedWords" rows="4" placeholder="刷屏&#10;广告"></textarea>
+      <div class="row end">
+        <button class="btn small" id="saveBlocked">保存屏蔽词</button>
+      </div>
+    </div>
+  </details>
+
+  <details open>
+    <summary>最近弹幕</summary>
+    <div class="card">
+      <p class="tip" style="margin-bottom:8px">主机屏幕不滚动显示弹幕，在这里看实时内容；弹幕在各个加入端的屏幕上滚动。</p>
+      <ul class="recent" id="recent"><li class="empty">还没有弹幕</li></ul>
+    </div>
+  </details>
+
+  <details>
+    <summary>运行日志</summary>
+    <div class="card">
+      <div class="logs" id="logs"></div>
+      <div class="row end">
+        <button class="btn small ghost" id="openConfig">打开配置目录</button>
+      </div>
+    </div>
+  </details>
+
+  <footer>
+    <span id="version"></span>
+  </footer>
+
+</main>
+
+<script src="../shared/protocol.js"></script>
+<script src="./app.js"></script>
+</body>
+</html>

@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; font-src 'self'">
+<title>LAN Danmaku · 加入弹幕</title>
+<link rel="stylesheet" href="./join.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="top-left">
+    <span class="dot" id="dot"></span>
+    <div>
+      <div class="top-title" id="statusTitle">未连接</div>
+      <div class="top-sub" id="statusSub">输入主机地址开始观看弹幕</div>
+    </div>
+  </div>
+  <div class="top-right">
+    <div class="stat"><span id="online">0</span><small>在线</small></div>
+  </div>
+</header>
+
+<main>
+
+  <section class="card">
+    <h2>连接主机</h2>
+    <div class="row">
+      <label for="host">主机地址</label>
+      <input id="host" type="text" placeholder="局域网 IP 或公网域名，如 danmaku.example.com:7321" spellcheck="false" autocomplete="off">
+    </div>
+    <div class="row" id="tokenRow">
+      <label for="roomToken">房间口令</label>
+      <input id="roomToken" type="text" maxlength="32" placeholder="服务器没开口令就留空" spellcheck="false" autocomplete="off">
+    </div>
+    <p class="tip">局域网填控制台显示的地址；公网服务器填域名或 IP（支持 https）。</p>
+    <div class="actions">
+      <button class="btn primary" id="connectBtn">连接</button>
+      <button class="btn" id="disconnectBtn" disabled>断开</button>
+    </div>
+    <div id="discoverBox">
+      <p class="tip" id="discoverHint">正在搜索局域网内的主机…（主机的控制台开着才会广播）</p>
+      <ul class="discover" id="discoverList"></ul>
+    </div>
+    <p class="tip ok" id="connectedHint" hidden>
+      弹幕正在本机屏幕顶部滚动。想发言就点右下角的桌宠，或者点下面的按钮把它调出来。
+    </p>
+    <p class="token-warn" id="tokenWarn" hidden>
+      ⚠ 这台服务器开启了发言口令：你现在只能观看，在上方填好口令即可发言（不用断开重连）。
+    </p>
+  </section>
+
+  <section class="card">
+    <h2>发言身份</h2>
+    <div class="row">
+      <label for="senderName">昵称</label>
+      <input id="senderName" type="text" maxlength="12" placeholder="例如 小梁" spellcheck="false" autocomplete="off">
+    </div>
+    <label class="check">
+      <input type="checkbox" id="senderAnon">
+      <span>匿名发送（弹幕上只显示「匿名」）</span>
+    </label>
+    <p class="tip" id="identityHint">先定好身份，之后在桌宠里直接发，不用每次填名字。</p>
+  </section>
+
+  <section class="card">
+    <h2>快捷操作</h2>
+    <div class="actions">
+      <button class="btn primary" id="ballBtn">显示桌宠</button>
+      <button class="btn" id="pauseBtn">暂停滚动</button>
+    </div>
+  </section>
+
+  <details>
+    <summary>弹幕设置</summary>
+    <div class="card">
+      <p class="tip" style="margin-bottom:12px">这些是<b>本机屏幕</b>的显示效果，只影响自己这块屏；其他加入端互不影响。</p>
+
+      <div class="slider">
+        <div class="slider-head"><label for="heightRatio">弹幕显示区域</label><span id="heightRatioVal"></span></div>
+        <input type="range" id="heightRatio" min="10" max="60" step="1">
+        <p class="tip">从屏幕顶部往下、占屏幕高度的百分比。滚动弹幕和固定公告都只显示在这个区域内。</p>
+      </div>
+
+      <div class="slider">
+        <div class="slider-head"><label for="fontSize">字号</label><span id="fontSizeVal"></span></div>
+        <input type="range" id="fontSize" min="16" max="56" step="1">
+      </div>
+
+      <div class="slider">
+        <div class="slider-head"><label for="scrollDuration">滚动时长</label><span id="scrollDurationVal"></span></div>
+        <input type="range" id="scrollDuration" min="4" max="20" step="0.5">
+        <p class="tip">一条弹幕从右侧进、左侧出所需的秒数。数字越大滚得越慢。</p>
+      </div>
+
+      <div class="slider">
+        <div class="slider-head"><label for="laneGap">轨道间距</label><span id="laneGapVal"></span></div>
+        <input type="range" id="laneGap" min="8" max="120" step="2">
+        <p class="tip">同一条轨道里前后两条弹幕的最小水平距离，调大可以显著减少视觉拥挤。</p>
+      </div>
+
+      <div class="slider">
+        <div class="slider-head"><label for="opacity">不透明度</label><span id="opacityVal"></span></div>
+        <input type="range" id="opacity" min="0.2" max="1" step="0.02">
+      </div>
+
+      <label class="check">
+        <input type="checkbox" id="showName">
+        <span>在弹幕前显示发送者昵称</span>
+      </label>
+
+      <div class="row" style="margin-top:10px">
+        <label for="displayId">显示屏幕</label>
+        <select id="displayId"></select>
+      </div>
+    </div>
+  </details>
+
+  <details open>
+    <summary>最近弹幕</summary>
+    <div class="card">
+      <ul class="recent" id="recent"><li class="empty">还没有弹幕</li></ul>
+    </div>
+  </details>
+
+  <details>
+    <summary>说明</summary>
+    <div class="card">
+      <p class="tip">· 加入模式只往外连，不监听端口，防火墙不用管。<br>
+      · 发言：点右下角桌宠 → 输入 → 回车。球可以拖到顺手的位置。<br>
+      · 弹幕设置在上方「弹幕设置」里调，只影响本机屏幕。<br>
+      · 关掉窗口会缩到托盘继续显示弹幕，右下角托盘图标可打开窗口或退出。</p>
+      <div class="row end">
+        <button class="btn small ghost" id="switchModeBtn">切换运行模式</button>
+      </div>
+    </div>
+  </details>
+
+  <footer><span id="version"></span></footer>
+</main>
+
+<script src="./app.js"></script>
+</body>
+</html>

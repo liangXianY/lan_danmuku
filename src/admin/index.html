@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LAN Danmaku · 管理台</title>
+<link rel="stylesheet" href="./admin.css">
+</head>
+<body>
+
+<main>
+
+  <!-- 登录 -->
+  <section class="card" id="loginCard">
+    <h1>弹幕管理台</h1>
+    <p class="tip">输入管理口令登录。口令在服务器首次启动时会打印，也写在服务器的配置文件里。</p>
+    <div class="row">
+      <input id="token" type="password" placeholder="管理口令" autocomplete="off">
+      <button class="btn primary" id="loginBtn">登录</button>
+    </div>
+    <p class="tip err" id="loginErr" hidden></p>
+  </section>
+
+  <!-- 控制面板 -->
+  <section class="card" id="panelCard" hidden>
+    <header class="head">
+      <h1>弹幕管理台</h1>
+      <div class="stat"><span id="online">0</span><small>在线</small></div>
+    </header>
+
+    <div class="row quick">
+      <button class="btn" id="pauseBtn">暂停上屏</button>
+      <button class="btn danger" id="clearBtn">清空弹幕</button>
+      <button class="btn ghost" id="logoutBtn">退出登录</button>
+    </div>
+
+    <h2>发固定公告</h2>
+    <p class="tip">公告不滚动，固定在屏幕上/中/下，停留一段时间后消失。</p>
+    <div class="row">
+      <input id="noticeText" type="text" maxlength="60" placeholder="公告内容（最多 60 字）">
+      <button class="btn primary" id="noticeBtn">发布</button>
+    </div>
+    <div class="row">
+      <label>落点
+        <select id="noticePos">
+          <option value="top">顶部</option>
+          <option value="center" selected>居中</option>
+          <option value="bottom">底部</option>
+        </select>
+      </label>
+      <label>停留
+        <select id="noticeStay">
+          <option value="2">2 秒</option>
+          <option value="5" selected>5 秒</option>
+          <option value="10">10 秒</option>
+          <option value="20">20 秒</option>
+          <option value="30">30 秒</option>
+        </select>
+      </label>
+    </div>
+
+    <h2>公网穿透</h2>
+    <p class="tip">一键把本机服务穿透到公网（Cloudflare 免费快速隧道，地址随机，重启会变）。需要服务器上能找到 cloudflared。</p>
+    <div class="row">
+      <button class="btn primary" id="tunnelBtn">一键开启公网</button>
+      <button class="btn ghost" id="tunnelStopBtn" hidden>关闭隧道</button>
+    </div>
+    <p class="tip ok" id="tunnelUrl" hidden></p>
+    <p class="tip" id="tunnelWaiting" hidden>正在建立隧道，通常 10 秒左右…</p>
+    <p class="tip err" id="tunnelErr" hidden></p>
+
+    <h2>屏蔽词</h2>
+    <p class="tip">每行一个，保存后立即生效（对新弹幕）。</p>
+    <textarea id="blockedWords" rows="6" spellcheck="false"></textarea>
+    <div class="row end">
+      <button class="btn primary" id="saveWordsBtn">保存屏蔽词</button>
+    </div>
+    <p class="tip ok" id="savedTip" hidden>已保存</p>
+  </section>
+
+</main>
+
+<script src="../shared/protocol.js"></script>
+<script src="./admin.js"></script>
+</body>
+</html>

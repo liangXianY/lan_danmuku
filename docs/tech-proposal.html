@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>局域网实时弹幕系统 — 立项与技术选型</title>
+<style>
+  :root{
+    --ink:#2C2C2A; --ink2:#5F5E5A; --ink3:#888780;
+    --line:#E4E2DA; --line2:#D3D1C7;
+    --bg:#FFFFFF; --page:#F7F6F3; --soft:#F1EFE8;
+    --blue:#185FA5; --blue-bg:#E6F1FB; --blue-ink:#0C447C;
+    --teal:#0F6E56; --teal-bg:#E1F5EE; --teal-ink:#085041;
+    --amber:#854F0B; --amber-bg:#FAEEDA;
+    --red:#A32D2D; --red-bg:#FCEBEB;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:48px 24px 80px;
+    background:var(--page); color:var(--ink);
+    font-family:system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+    font-size:15px; line-height:1.8;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:880px;margin:0 auto;background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:56px 60px 64px}
+  @media(max-width:760px){ .wrap{padding:32px 22px 40px} body{padding:16px 8px 40px} }
+
+  .kicker{font-size:13px;color:var(--teal);letter-spacing:.04em;margin:0 0 10px}
+  h1{font-size:28px;font-weight:600;line-height:1.35;margin:0 0 14px;letter-spacing:-.01em}
+  .meta{font-size:13px;color:var(--ink3);margin:0 0 36px;padding-bottom:22px;border-bottom:1px solid var(--line)}
+
+  h2{font-size:20px;font-weight:600;margin:52px 0 18px;padding-left:13px;border-left:3px solid var(--teal);line-height:1.4}
+  h3{font-size:16px;font-weight:600;margin:32px 0 12px;color:var(--ink)}
+  h4{font-size:14px;font-weight:600;margin:22px 0 8px;color:var(--ink2)}
+  p{margin:0 0 14px}
+  ul,ol{margin:0 0 16px;padding-left:22px}
+  li{margin:5px 0}
+  strong{font-weight:600}
+  code{font-family:ui-monospace,Consolas,"Courier New",monospace;font-size:13px;background:var(--soft);padding:1.5px 6px;border-radius:5px;color:#4A4842}
+
+  table{width:100%;border-collapse:collapse;margin:18px 0;font-size:13.5px}
+  th,td{border:1px solid var(--line);padding:10px 13px;text-align:left;vertical-align:top}
+  th{background:var(--soft);font-weight:600;color:var(--ink);white-space:nowrap}
+  td.n{white-space:nowrap}
+  tbody tr:nth-child(even){background:#FCFCFA}
+
+  pre{background:#F6F6F3;border:1px solid var(--line);border-radius:10px;padding:16px 18px;overflow:auto;font-size:12.5px;line-height:1.65;margin:14px 0}
+  pre code{background:none;padding:0;font-size:12.5px;color:#3F3D38}
+
+  .badge{display:inline-block;font-size:11.5px;font-weight:600;padding:1px 8px;border-radius:20px;vertical-align:1px}
+  .b0{background:var(--red-bg);color:var(--red)}
+  .b1{background:var(--amber-bg);color:var(--amber)}
+  .b2{background:var(--blue-bg);color:var(--blue-ink)}
+
+  .callout{border-radius:10px;padding:16px 20px;margin:20px 0;font-size:14px;border-left:3px solid}
+  .c-teal{background:var(--teal-bg);border-color:var(--teal);color:var(--teal-ink)}
+  .c-blue{background:var(--blue-bg);border-color:var(--blue);color:var(--blue-ink)}
+  .c-amber{background:var(--amber-bg);border-color:var(--amber);color:var(--amber)}
+  .callout p:last-child{margin-bottom:0}
+  .callout .lbl{font-weight:600;font-size:13px;display:block;margin-bottom:5px}
+
+  .pick{border:2px solid var(--teal);border-radius:10px;padding:3px 10px;background:var(--teal-bg);color:var(--teal-ink);font-weight:600;font-size:12.5px;display:inline-block}
+  .drop{color:var(--ink3)}
+
+  .ms{list-style:none;padding:0;margin:20px 0}
+  .ms li{position:relative;padding:0 0 26px 30px;border-left:2px solid var(--line2);margin:0}
+  .ms li:last-child{border-left-color:transparent;padding-bottom:0}
+  .ms li::before{content:"";position:absolute;left:-7px;top:7px;width:12px;height:12px;border-radius:50%;background:#fff;border:2.5px solid var(--teal)}
+  .ms .t{font-weight:600;font-size:14.5px}
+  .ms .d{font-size:13.5px;color:var(--ink2)}
+  .ms .v{font-size:13px;color:var(--teal);margin-top:4px}
+  .ms .v::before{content:"验收：";color:var(--ink3)}
+
+  .q{counter-reset:qq;list-style:none;padding:0}
+  .q li{counter-increment:qq;position:relative;padding:14px 18px 14px 52px;border:1px solid var(--line);border-radius:10px;margin-bottom:10px;font-size:14px}
+  .q li::before{content:counter(qq);position:absolute;left:18px;top:13px;width:22px;height:22px;border-radius:50%;background:var(--soft);color:var(--ink2);font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center}
+  .q .rec{display:block;font-size:13px;color:var(--teal);margin-top:3px}
+
+  .lbl-t{font-size:13px;font-weight:600;color:var(--ink2);margin:20px 0 6px}
+  hr{border:none;border-top:1px solid var(--line);margin:44px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="kicker">项目立项 · 技术选型方案</p>
+<h1>局域网实时弹幕系统<br><span style="font-weight:400;color:var(--ink2);font-size:21px">LAN Danmaku Overlay</span></h1>
+<p class="meta">版本 v0.1（草案）　·　日期 2026-09-15　·　状态：待评审　·　下一步：确认第 8 节决策项后进入 M1</p>
+
+<h2>0. 一句话立项</h2>
+<p>做一个跑在局域网里的"弹幕大屏"：<strong>一台电脑启动 App 后自动开设房间并把弹幕层悬浮在桌面最上方</strong>，同一 WiFi 下的任何人用手机扫码就能发弹幕，弹幕从右往左滚动掠过屏幕顶部——不遮挡操作、不依赖外网、不装任何客户端。</p>
+
+<div class="callout c-teal">
+  <span class="lbl">核心设计取舍</span>
+  <p>把"发送"做成浏览器网页而不是客户端，是这个方案体验分最高的一步。用户零安装、跨 iOS/Android/Windows/Mac，成本全压在主机端一次开发上。</p>
+</div>
+
+<hr>
+
+<h2>1. 需求拆解</h2>
+
+<h3>1.1 功能需求</h3>
+
+<p class="lbl-t"><span class="badge b0">P0</span> MVP 必须具备</p>
+<table>
+<thead><tr><th>编号</th><th>功能</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td class="n">F1</td><td>一键开房</td><td>启动即建立房间，自动探测局域网 IP，屏幕/托盘上展示二维码</td></tr>
+<tr><td class="n">F2</td><td>扫码即发</td><td>手机浏览器打开页面，填昵称 + 内容即可发送，无需安装、无需注册</td></tr>
+<tr><td class="n">F3</td><td>实时广播</td><td>WebSocket 推送，局域网端到端延迟目标 P95 &lt; 100ms</td></tr>
+<tr><td class="n">F4</td><td>顶部弹幕层</td><td>全宽无边框窗口，透明背景、置顶、鼠标点击穿透</td></tr>
+<tr><td class="n">F5</td><td>右→左滚动</td><td>多轨道调度，自动避免重叠与追尾</td></tr>
+<tr><td class="n">F6</td><td>托盘控制</td><td>暂停 / 继续上屏、清屏、设置、退出</td></tr>
+</tbody>
+</table>
+
+<p class="lbl-t"><span class="badge b1">P1</span> 体验完善</p>
+<table>
+<thead><tr><th>编号</th><th>功能</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td class="n">F7</td><td>样式配置</td><td>字号、默认色、速度、轨道数、弹幕区高度、目标屏幕</td></tr>
+<tr><td class="n">F8</td><td>限流防刷</td><td>每人 N 条/秒，超限拒绝并回执提示；客户端队列超限丢最旧</td></tr>
+<tr><td class="n">F9</td><td>弹幕历史</td><td>服务端保留最近 N 条，支持误关后恢复 / 回放</td></tr>
+<tr><td class="n">F10</td><td>屏蔽词</td><td>本地词库过滤，可导入</td></tr>
+</tbody>
+</table>
+
+<p class="lbl-t"><span class="badge b2">P2</span> 进阶增强</p>
+<table>
+<thead><tr><th>编号</th><th>功能</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td class="n">F11</td><td>多弹幕屏</td><td>其他电脑装 App 后加入房间，只渲染不发送（教室多屏场景）</td></tr>
+<tr><td class="n">F12</td><td>审核模式</td><td>弹幕先进待审队列，主持人放行后才上屏（会议/正式场合）</td></tr>
+<tr><td class="n">F13</td><td>富媒体弹幕</td><td>图片 / 表情上屏</td></tr>
+<tr><td class="n">F14</td><td>AI 彩蛋</td><td>本地小模型做弹幕情感分类：负面自动降权/过滤，高光弹幕延长停留时间。<em>这条和你转大模型的方向天然契合，可作为简历项目</em></td></tr>
+</tbody>
+</table>
+
+<h3>1.2 非功能需求</h3>
+<table>
+<thead><tr><th>维度</th><th>目标</th></tr></thead>
+<tbody>
+<tr><td class="n">并发连接</td><td>单房间 ≥ 50 台设备同时在线</td></tr>
+<tr><td class="n">弹幕吞吐</td><td>稳定 30 条/秒，峰值 100 条/秒不崩、不丢帧</td></tr>
+<tr><td class="n">端到端延迟</td><td>局域网内 P95 &lt; 100ms</td></tr>
+<tr><td class="n">安装包体积</td><td>≤ 120MB（Electron 路线）</td></tr>
+<tr><td class="n">冷启动</td><td>≤ 2s</td></tr>
+<tr><td class="n">空闲内存</td><td>≤ 250MB</td></tr>
+<tr><td class="n">目标平台</td><td>Windows 10/11 优先，macOS 次之</td></tr>
+<tr><td class="n">网络前提</td><td>同一二层局域网；<strong>不需要外网、不需要任何服务器</strong></td></tr>
+<tr><td class="n">隐私</td><td>数据不出局域网，无云端依赖，无埋点</td></tr>
+</tbody>
+</table>
+
+<hr>
+
+<h2>2. 系统架构</h2>
+
+<h3>2.1 角色划分</h3>
+<table>
+<thead><tr><th>角色</th><th>载体</th><th>职责</th></tr></thead>
+<tbody>
+<tr><td class="n"><strong>Host 主机</strong></td><td>桌面 App</td><td>启动 HTTP + WebSocket 服务、维护房间状态、渲染弹幕层、托盘控制</td></tr>
+<tr><td class="n"><strong>Sender 发送端</strong></td><td>浏览器（手机/电脑）</td><td>扫码打开页面，输入内容发送；纯前端，无本地依赖</td></tr>
+<tr><td class="n"><strong>Viewer 弹幕屏</strong><br><span class="badge b2">P2</span></td><td>桌面 App（其他机器）</td><td>加入已有房间，只接收并渲染，不发送</td></tr>
+</tbody>
+</table>
+
+<h3>2.2 数据流</h3>
+<ol>
+<li>主机启动 → 枚举网卡 IPv4 → 挑出私有地址（<code>192.168.x</code> / <code>10.x</code> / <code>172.16-31.x</code>）</li>
+<li>在端口 <code>7321</code>（占用则递增）上同时监听 <strong>HTTP 静态页</strong> 和 <strong>WebSocket 升级</strong></li>
+<li>把 <code>http://192.168.1.23:7321</code> 渲染成二维码显示在屏幕上</li>
+<li>手机扫码 → 加载发送页 → 建立 WS 连接 → 发送 <code>hello</code> 握手</li>
+<li>用户点击发送 → 客户端发 <code>send</code> → 服务端校验 + 限流 → 广播 <code>danmaku</code> 给所有连接（含主机自己）</li>
+<li>主机弹幕层收到 → 分配轨道 → 创建 DOM 节点 → CSS 动画从右往左滚出 → 动画结束回收节点</li>
+</ol>
+
+<h3>2.3 房间模式</h3>
+<p>MVP 采用 <strong>单一默认房间</strong>（<code>room: "default"</code>），协议层预留 <code>room</code> 字段，后续做多房间不需要改协议。不做 P2P/去中心化——局域网里"找一台机器当中心"永远比"让 N 台机器互相同步"简单可靠。</p>
+
+<hr>
+
+<h2>3. 技术选型</h2>
+
+<h3>3.1 桌面外壳选型 <span class="badge b0">核心决策</span></h3>
+<p>这是整个项目唯一需要慎重拍板的点，因为它决定了开发难度、包体积和"能不能做出丝滑滚动"。</p>
+
+<table>
+<thead><tr><th>方案</th><th>透明 + 穿透窗口</th><th>弹幕动画</th><th>包体积</th><th>冷启动</th><th>开发效率</th><th>风险</th></tr></thead>
+<tbody>
+<tr style="background:var(--teal-bg)">
+  <td class="n"><strong>Electron</strong><br><span class="pick">推荐</span></td>
+  <td>transparent + setIgnoreMouseEvents，两行 API</td>
+  <td>CSS transform，GPU 合成层，最省事</td>
+  <td>90–120MB</td><td>~1.5s</td><td>高</td><td>低</td>
+</tr>
+<tr>
+  <td class="n">Tauri v2</td>
+  <td>支持，但穿透需 Rust 侧调 Win32 API</td>
+  <td>同样是 WebView，渲染效果一致</td>
+  <td>8–15MB</td><td>~0.5s</td><td>中</td><td>中高（Rust 门槛）</td>
+</tr>
+<tr>
+  <td class="n">PySide6 (Qt)</td>
+  <td>三段式设置：无边框 + 半透明背景 + 鼠标透明</td>
+  <td>QPropertyAnimation / QGraphicsScene，滚动弹幕实现较费劲</td>
+  <td>60–80MB</td><td>~2s</td><td>中</td><td>中</td>
+</tr>
+<tr>
+  <td class="n">C# WPF</td>
+  <td>AllowsTransparency + WS_EX_TRANSPARENT</td>
+  <td>Storyboard 动画，性能好</td>
+  <td>40–70MB</td><td>~1s</td><td>中</td><td>高（跨平台差）</td>
+</tr>
+</tbody>
+</table>
+
+<div class="callout c-teal">
+  <span class="lbl">结论：主推 Electron</span>
+  <p><strong>1.</strong> 弹幕的本质是"让一批文字在屏幕上丝滑移动"，这正是浏览器渲染引擎最擅长的场景——CSS <code>transform</code> 走 GPU 合成层，60fps 稳定，不用自己写动画调度器。<br>
+  <strong>2.</strong> 透明 + 置顶 + 点击穿透在 Electron 上是成熟 API，完全不用碰平台原生代码。<br>
+  <strong>3.</strong> 服务端 Node.js 与 Electron 同进程，前后端一套语言、一个打包产物，省掉跨语言 IPC。<br>
+  <strong>4.</strong> 发送端页面 100% 复用同一套前端技术栈，手机端适配成本极低。</p>
+</div>
+
+<p><strong>付出的代价：</strong>安装包约 100MB。局域网内分发（U 盘 / 内网共享）可以接受。</p>
+
+<p><strong>什么时候该换方案：</strong></p>
+<ul>
+<li>如果硬性要求 ≤15MB 或要跑在低配机器上 → 换 <strong>Tauri v2</strong></li>
+<li>如果目的是顺便练 Python 桌面开发（和自己转大模型的技术栈统一）→ 换 <strong>PySide6</strong>，服务端用 FastAPI + websockets，也是完整一套</li>
+</ul>
+
+<h3>3.2 弹幕渲染引擎</h3>
+
+<table>
+<thead><tr><th>方案</th><th>优点</th><th>缺点</th><th>定位</th></tr></thead>
+<tbody>
+<tr style="background:var(--teal-bg)">
+  <td class="n"><strong>DOM + CSS 动画</strong><br><span class="pick">MVP 采用</span></td>
+  <td>文字样式完全自由（颜色/描边/emoji），GPU 合成层，代码量小</td>
+  <td>同屏 300+ 条时 DOM 节点压力显现</td>
+  <td>MVP 主力</td>
+</tr>
+<tr>
+  <td class="n">Canvas 2D</td>
+  <td>几千条也不掉帧，完全可控</td>
+  <td>要自己 measureText、处理 emoji、逐帧重绘</td>
+  <td>v0.3 按需切换</td>
+</tr>
+</tbody>
+</table>
+<p>做法：抽象一个 <code>DanmakuRenderer</code> 接口，MVP 用 DOM 实现，将来换 Canvas 只替换实现类，轨道调度逻辑复用。</p>
+
+<h4>轨道调度算法</h4>
+<ol>
+<li>把弹幕带按行高切成 N 条轨道（行高 = 字号 × 1.6）</li>
+<li>新弹幕优先选择"最后一条弹幕右边缘最早离开屏幕"的轨道</li>
+<li>能否塞入的判定：轨道内末条弹幕的右边缘已离开屏幕右侧，或两者速度差不足以追尾</li>
+<li>所有轨道都满 → 复用最早可用的轨道（允许重叠）或短暂排队</li>
+<li>宽度预测量用 <code>canvas.measureText</code>，<strong>绝不用字符数估算</strong>——中英文 emoji 混排下估算必然翻车</li>
+</ol>
+
+<h3>3.3 通信协议</h3>
+<p><strong>选型：原生 WebSocket（服务端 <code>ws</code> 库）</strong></p>
+<ul>
+<li><strong>为什么不 SSE：</strong>SSE 只能服务端单向推送，发弹幕还得另开 HTTP POST，两套通道，不值当</li>
+<li><strong>为什么不用 UDP 广播：</strong>不可靠且无顺序，弹幕丢一条用户能看出来；UDP 只适合用来做局域网发现</li>
+<li><strong>为什么不用 Socket.IO：</strong>它的 room 和自动重连确实开箱即用，但包体积大、协议私有。局域网环境下 WebSocket 必然连通，自己写心跳 + 重连不过几十行，更轻更可控</li>
+</ul>
+
+<h3>3.4 局域网接入与发现</h3>
+<table>
+<thead><tr><th>方式</th><th>体验</th><th>实现成本</th><th>优先级</th></tr></thead>
+<tbody>
+<tr style="background:var(--teal-bg)"><td class="n"><strong>屏幕二维码 + IP 提示</strong></td><td>扫码即用，0 输入</td><td>低（qrcode 库）</td><td>MVP 必做</td></tr>
+<tr><td class="n">手输 IP 网址</td><td>一般，适合扫码不便的场景</td><td>无</td><td>MVP 附带</td></tr>
+<tr><td class="n">mDNS / Bonjour 广播</td><td>App 内可直接发现房间，免输 IP</td><td>中（bonjour-service）</td><td>P1</td></tr>
+</tbody>
+</table>
+
+<div class="callout c-amber">
+  <span class="lbl">必须提前处理：Windows 防火墙</span>
+  <p>首次监听端口时 Windows 会弹防火墙确认框，用户点"取消"或选了"公用网络"就会导致<strong>手机完全连不上，而 App 看起来一切正常</strong>——这是这类项目最容易踩的坑。对策：启动后主动做一次本机端口可达性自检，失败时在界面上显示醒目横幅 + 一键跳转防火墙设置，而不是静默失败。</p>
+</div>
+
+<h3>3.5 打包与分发</h3>
+<table>
+<thead><tr><th>项</th><th>方案</th></tr></thead>
+<tbody>
+<tr><td class="n">打包工具</td><td><code>electron-builder</code></td></tr>
+<tr><td class="n">Windows</td><td>NSIS 安装包（可选同时产出便携版单 exe）</td></tr>
+<tr><td class="n">macOS</td><td>dmg；无签名则文档说明"右键打开"绕过 Gatekeeper</td></tr>
+<tr><td class="n">体积优化</td><td>asar 打包、仅保留生产依赖、排除 sourcemap</td></tr>
+<tr><td class="n">自动更新</td><td><code>electron-updater</code> 指向内网 HTTP 目录（局域网场景无外网，不能用 GitHub Releases）</td></tr>
+</tbody>
+</table>
+
+<h3>3.6 技术栈总览</h3>
+<table>
+<thead><tr><th>层</th><th>选型</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td class="n">桌面外壳</td><td>Electron 31+</td><td>主进程承载全部后端逻辑</td></tr>
+<tr><td class="n">后端服务</td><td>Node.js 内置 + <code>ws</code></td><td>原生 http 提供静态页，<code>ws</code> 提供 WebSocket</td></tr>
+<tr><td class="n">前端框架</td><td>原生 JS，不引框架</td><td>发送页和控制台逻辑很薄，上框架的收益低于成本；弹幕层本来就必须直接操作 DOM</td></tr>
+<tr><td class="n">弹幕渲染</td><td>Web Animations API</td><td>transform 动画跑在合成线程；可 cancel / 精确读进度；节点池复用不会残留 fill 效果</td></tr>
+<tr><td class="n">二维码</td><td><code>qrcode</code></td><td>主进程生成 data URL，控制台直接 <code>&lt;img&gt;</code> 显示</td></tr>
+<tr><td class="n">托盘</td><td>Electron Tray</td><td>原生托盘菜单</td></tr>
+<tr><td class="n">配置持久化</td><td>自写 JSON 存储</td><td>20 行代码的事，不用引 electron-store</td></tr>
+<tr><td class="n">图标</td><td>手写 PNG 编码器</td><td>免掉 sharp / canvas 这类原生模块的编译麻烦</td></tr>
+<tr><td class="n">网络探测</td><td>Node <code>os.networkInterfaces()</code></td><td>枚举私有网段 IPv4</td></tr>
+<tr><td class="n">打包</td><td><code>electron-builder</code></td><td>NSIS + dmg</td></tr>
+<tr><td class="n">语言</td><td>TypeScript</td><td>协议类型前后端共用一份定义</td></tr>
+</tbody>
+</table>
+
+<hr>
+
+<h2>4. 关键技术难点与对策</h2>
+<table>
+<thead><tr><th>风险</th><th>影响</th><th>对策</th></tr></thead>
+<tbody>
+<tr><td>Windows 防火墙拦截端口</td><td>手机连不上，功能直接不可用且难以自查</td><td>启动时端口可达性自检；失败给出横幅提示 + 一键跳转防火墙设置</td></tr>
+<tr><td>点击穿透在个别系统版本异常</td><td>弹幕层挡住鼠标，用户无法操作</td><td>默认开启穿透；托盘提供"临时锁定鼠标"开关兜底</td></tr>
+<tr><td>独占全屏应用（游戏/播放器）下无法覆盖</td><td>弹幕看不见</td><td>文档说明需使用无边框窗口/窗口化模式；检测到异常时提示</td></tr>
+<tr><td>多显示器 + 高 DPI 缩放错位</td><td>弹幕跑到别的屏、位置偏移</td><td>用 Electron <code>screen</code> API 取 <code>display.bounds</code> 与 <code>scaleFactor</code>，按物理像素换算；设置页可选目标屏幕</td></tr>
+<tr><td>刷屏导致卡顿掉帧</td><td>主线程阻塞，滚动不流畅</td><td>服务端限流 + 客户端队列上限 + 超限丢最旧 + DOM 节点池化复用</td></tr>
+<tr><td>中英文 emoji 混排宽度计算错误</td><td>轨道判断失准，弹幕互相重叠</td><td>统一用 <code>canvas.measureText</code> 预测量，不靠字符数估算</td></tr>
+<tr><td>macOS 全屏空间下不显示</td><td>置顶失效</td><td><code>level: 'screen-saver'</code> + <code>setVisibleOnAllWorkspaces(true)</code></td></tr>
+</tbody>
+</table>
+
+<hr>
+
+<h2>5. 通信协议设计</h2>
+
+<h4>客户端 → 服务端</h4>
+<pre><code>{ "type": "hello",  "name": "小明", "room": "default" }
+{ "type": "send",   "text": "666", "color": "#FFD400", "size": 24, "name": "小明", "ts": 1757900000000 }
+{ "type": "ping" }</code></pre>
+
+<h4>服务端 → 客户端</h4>
+<pre><code>{ "type": "danmaku", "id": "uuid", "text": "666", "color": "#FFD400", "size": 24,
+  "name": "小明", "mode": "scroll", "ts": 1757900000123 }
+{ "type": "ack",    "id": "local-1", "ok": true }
+{ "type": "reject", "code": "RATE_LIMIT", "msg": "发得太快了，歇一下" }
+{ "type": "stats",  "online": 12 }
+{ "type": "pong" }</code></pre>
+
+<h4>控制消息（主机下发）</h4>
+<pre><code>{ "type": "clear" }              // 清屏
+{ "type": "pause" | "resume" }   // 暂停 / 恢复上屏
+{ "type": "config", "fontSize": 24, "speed": 8, "lanes": 3, "heightRatio": 0.3 }</code></pre>
+
+<h4>约束（服务端强校验，不信任客户端）</h4>
+<ul>
+<li><code>text</code> 长度 ≤ 60 字，超出直接截断</li>
+<li><code>color</code> 只接受合法 hex 或预设白名单，防注入</li>
+<li><code>size</code> 统一 clamp 到 [16, 48]，防止超大字号撑爆屏幕</li>
+<li><code>name</code> 长度 ≤ 12 字，空白替换为"匿名"</li>
+</ul>
+
+<hr>
+
+<h2>6. 项目结构</h2>
+<pre><code>lan-danmaku/
+├─ package.json
+├─ README.md
+├─ scripts/
+│  ├─ gen-icon.js           # 手写 PNG 编码器生成图标
+│  └─ smoke-test.js         # 脱离 Electron 测服务端全链路
+├─ src/
+│  ├─ main/                 # 主进程（后端）
+│  │  ├─ main.js            # 窗口创建、托盘、生命周期、IPC
+│  │  ├─ server.js          # http 静态服务 + ws
+│  │  ├─ room.js            # 房间状态、校验、限流、广播
+│  │  ├─ net.js             # 局域网 IPv4 探测与排序
+│  │  ├─ store.js           # 配置持久化
+│  │  ├─ preload-overlay.js
+│  │  └─ preload-control.js
+│  ├─ overlay/              # 弹幕层页面（透明置顶穿透窗口）
+│  │  ├─ index.html
+│  │  ├─ overlay.js         # 轨道调度 + Web Animations 渲染
+│  │  └─ overlay.css
+│  ├─ sender/               # 发送页（局域网内浏览器访问）
+│  │  ├─ index.html
+│  │  ├─ app.js
+│  │  └─ sender.css
+│  ├─ control/              # 控制台页面
+│  └─ shared/
+│     └─ protocol.js        # 消息类型定义（前后端共用）
+└─ docs/
+   └─ tech-proposal.html    # 本文档</code></pre>
+
+<hr>
+
+<h2>7. 里程碑</h2>
+<ul class="ms">
+<li>
+  <div class="t">M1 · 骨架跑通</div>
+  <div class="d">Electron 透明置顶穿透窗口能显示；写死的弹幕能从右往左滚动</div>
+  <div class="v">跑起来能看到一行字从右边滚到左边，鼠标能穿透它点到桌面图标</div>
+</li>
+<li>
+  <div class="t">M2 · 打通局域网</div>
+  <div class="d">WS 服务 + 发送页 + 二维码生成；手机扫码可发送，桌面实时上屏</div>
+  <div class="v">手机发"666"，桌面 100ms 内出现</div>
+</li>
+<li>
+  <div class="t">M3 · MVP 完整</div>
+  <div class="d">托盘、限流、清屏、暂停、设置页全部到位</div>
+  <div class="v">一场真实活动能全程稳定跑完不崩</div>
+</li>
+<li>
+  <div class="t">M4 · 打包分发</div>
+  <div class="d">electron-builder 产出 NSIS 安装包，在没装 Node 的机器上验证</div>
+  <div class="v">陌生电脑双击安装 → 扫码 → 弹幕上屏，全程不需要命令行</div>
+</li>
+<li>
+  <div class="t">M5 · 增强</div>
+  <div class="d">按需推进 P1 / P2 功能，多屏、审核、AI 彩蛋</div>
+  <div class="v">按具体需求另定</div>
+</li>
+</ul>
+
+<hr>
+
+<h2>8. 待决策事项</h2>
+<p>下面几条确认后就能直接开写 M1。</p>
+<ol class="q">
+<li><strong>桌面外壳选哪个？</strong>
+  <span class="rec">推荐 Electron —— 弹幕丝滑动效最稳、坑最少。若想体积小选 Tauri；若想统一 Python 技术栈选 PySide6。</span></li>
+<li><strong>主要使用场景是什么？</strong>课堂 / 会议 / 直播 / 聚会 / 自己玩
+  <span class="rec">这个决定要不要提前做审核模式和屏蔽词（正式场合几乎是刚需，聚会场景则是负担）。</span></li>
+<li><strong>发送端只做浏览器网页够吗？</strong>还是也需要一个桌面发送客户端？
+  <span class="rec">建议先只做网页，桌面客户端收益低。</span></li>
+<li><strong>要不要做 F14 的 AI 彩蛋？</strong>
+  <span class="rec">弹幕情感分类过滤 / 高光弹幕精选 —— 这条能和你转大模型的方向结合，可以当简历项目写。</span></li>
+</ol>
+
+</div>
+</body>
+</html>

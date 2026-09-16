@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'">
+<title>LAN Danmaku · 选择运行模式</title>
+<link rel="stylesheet" href="./launcher.css">
+</head>
+<body>
+
+<header>
+  <h1>LAN Danmaku</h1>
+  <p>局域网实时弹幕 · 选择这台电脑扮演的角色</p>
+</header>
+
+<main>
+  <button class="mode" id="pickHost">
+    <span class="emoji">🖥️</span>
+    <span class="t">作为主机</span>
+    <span class="d">弹幕源在这台电脑上。显示弹幕层，并开放服务给局域网内的手机、电脑发送和观看。</span>
+  </button>
+
+  <button class="mode" id="pickJoin">
+    <span class="emoji">📺</span>
+    <span class="t">加入弹幕</span>
+    <span class="d">连接局域网里的另一台主机。本机屏幕顶部同步滚动弹幕，还能打开发送窗口参与发言。</span>
+  </button>
+</main>
+
+<footer>选错也没关系，托盘菜单里随时可以切换。</footer>
+
+<script src="./app.js"></script>
+</body>
+</html>

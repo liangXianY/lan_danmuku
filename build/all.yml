@@ -1,0 +1,39 @@
+# 一体化版：不锁定 appMode，首次启动弹出模式选择（主机 / 加入），
+# 之后托盘菜单里可随时切换模式。
+# 与主机版 / 加入版的唯一区别：没有 extraMetadata.appMode，
+# package.json 里不含 appMode 字段，运行时走「启动时选模式」逻辑。
+appId: com.liangbai.lan-danmaku
+productName: LAN Danmaku
+
+directories:
+  output: dist/all
+  buildResources: build
+
+files:
+  - src/**/*
+  - assets/**/*
+  - package.json
+
+extraMetadata:
+  appVariant: all
+
+win:
+  icon: build/icon.ico
+  executableName: LAN-Danmaku
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  shortcutName: 局域网弹幕
+  artifactName: LAN-Danmaku-${version}-AllInOne-Setup.${ext}
+
+portable:
+  artifactName: LAN-Danmaku-${version}-AllInOne-Portable.${ext}

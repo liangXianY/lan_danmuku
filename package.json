@@ -1,0 +1,62 @@
+{
+  "name": "lan-danmaku",
+  "version": "0.3.8",
+  "description": "局域网实时弹幕系统 —— 主机模式提供弹幕源，加入模式让局域网电脑同步观看并发言",
+  "main": "src/main/main.js",
+  "author": "",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "serve": "node src/server/main.js",
+    "icon": "node scripts/gen-icon.js",
+    "dist:host": "electron-builder --win --config build/host.yml",
+    "dist:join": "electron-builder --win --config build/join.yml",
+    "dist:all": "electron-builder --win --config build/all.yml",
+    "dist:win": "npm run dist:host && npm run dist:join",
+    "dist:dir": "electron-builder --dir"
+  },
+  "dependencies": {
+    "qrcode": "^1.5.4",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.liangbai.lan-danmaku",
+    "productName": "LAN Danmaku",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "LAN Danmaku"
+    }
+  }
+}

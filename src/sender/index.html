@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0F6E56">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; connect-src 'self' ws:; style-src 'self'; script-src 'self'; img-src 'self' data:; font-src 'self'">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>发弹幕</title>
+<link rel="stylesheet" href="./sender.css">
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand">
+    <span class="dot" id="dot"></span>
+    <span id="statusText">连接中…</span>
+  </div>
+  <div class="online" id="online">—</div>
+</header>
+
+<main>
+  <section class="field">
+    <label for="name">昵称</label>
+    <input id="name" type="text" maxlength="12" placeholder="留空就是匿名" autocomplete="nickname">
+  </section>
+
+  <section class="field" id="tokenField" hidden>
+    <label for="roomToken">房间口令</label>
+    <input id="roomToken" type="text" maxlength="32" placeholder="问主持人要口令" autocomplete="off">
+  </section>
+
+  <section class="field">
+    <label for="text">弹幕内容</label>
+    <textarea id="text" maxlength="60" rows="3" placeholder="说点什么…"></textarea>
+    <div class="counter"><span id="count">0</span>/60</div>
+  </section>
+
+  <section class="field">
+    <label>颜色</label>
+    <div class="colors" id="colors"></div>
+    <label class="custom">
+      <input type="color" id="customColor" value="#FFD400">
+      <span>自定义颜色</span>
+    </label>
+  </section>
+
+  <section class="field">
+    <label>快捷弹幕</label>
+    <div class="quick" id="quick"></div>
+  </section>
+
+  <button id="send" class="send" disabled>发 送</button>
+  <p class="hint" id="hint">连上主机后就能发了</p>
+</main>
+
+<aside class="recent">
+  <h2>最近弹幕</h2>
+  <ul id="recent"></ul>
+</aside>
+
+<div id="toast" class="toast"></div>
+
+<script src="../shared/protocol.js"></script>
+<script src="./app.js"></script>
+</body>
+</html>
