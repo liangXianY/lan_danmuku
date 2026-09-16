@@ -8,6 +8,16 @@
 
 弹幕从右往左滚过屏幕顶部，不依赖外网、不经过任何服务器。
 
+## 界面预览
+
+| 弹幕层效果（覆盖在视频之上） | 桌宠发送入口（点球展开输入条） |
+|---|---|
+| ![弹幕层效果](docs/images/screenshot-overlay.png) | ![桌宠发送入口](docs/images/screenshot-ball-input.png) |
+
+| 主机控制台 | 加入模式 |
+|---|---|
+| ![主机控制台](docs/images/screenshot-host-console.png) | ![加入模式](docs/images/screenshot-join.png) |
+
 ```
 浏览器（零安装）──────────┐
                           ├──WebSocket──▶ 主机 App ──▶ 主机屏幕顶部弹幕层
@@ -126,19 +136,21 @@ Cloudflare 快速隧道（免费、免注册），并把分配的 `https://xxx.t
 
 测试：`node scripts/smoke-public.js`（口令、管理员、白名单等公网专属逻辑的冒烟测试）。
 
-## 打包成软件（两个版本）
+## 打包成软件（三种形态）
 
-为了"发给别人装完就能用、不会误操作"，打包分成两个**互相独立**的安装包，各自把运行模式锁死：
+为了"发给别人装完就能用、不会误操作"，打包分成两个**互相独立**的单模式版，
+外加一个可自由切换的一体化版：
 
-| | 主机版 | 加入版 |
-|---|---|---|
-| 安装包 | `LAN-Danmaku-Host-<版本>-Setup.exe` | `LAN-Danmaku-Join-<版本>-Setup.exe` |
-| 免安装版 | `LAN-Danmaku-Host-<版本>-Portable.exe` | `LAN-Danmaku-Join-<版本>-Portable.exe` |
-| 启动后 | 直接开服务 + 控制台 + 弹幕层 | 直接进"加入弹幕"窗口，填主机地址 |
-| 能否切换模式 | ❌ 托盘里没有「切换模式」 | ❌ 同上 |
-| 配置目录 | `%APPDATA%\LAN Danmaku Host` | `%APPDATA%\LAN Danmaku Join` |
+| | 主机版 | 加入版 | 一体化版 |
+|---|---|---|---|
+| 安装包 | `LAN-Danmaku-Host-<版本>-Setup.exe` | `LAN-Danmaku-Join-<版本>-Setup.exe` | `LAN-Danmaku-<版本>-AllInOne-Setup.exe` |
+| 免安装版 | `LAN-Danmaku-Host-<版本>-Portable.exe` | `LAN-Danmaku-Join-<版本>-Portable.exe` | `LAN-Danmaku-<版本>-AllInOne-Portable.exe` |
+| 启动后 | 直接开服务 + 控制台 + 弹幕层 | 直接进"加入弹幕"窗口，填主机地址 | 弹出模式选择窗口，选完进对应模式 |
+| 能否切换模式 | ❌ 托盘里没有「切换模式」 | ❌ 同上 | ✅ 托盘 / 设置页随时切换 |
+| 配置目录 | `%APPDATA%\LAN Danmaku Host` | `%APPDATA%\LAN Danmaku Join` | `%APPDATA%\LAN Danmaku` |
 
-两个包可以装在同一台机器上互不干扰（appId、程序名、配置目录都不同）。
+一体化版适合"一个人一台机器搞定全场"：这台当主机就选主机模式，换台机器就选加入模式，
+运行中还能来回切。
 
 ```bash
 npm run dist:host    # 只打主机版 → dist/host/
