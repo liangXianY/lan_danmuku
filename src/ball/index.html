@@ -19,6 +19,14 @@
       <div class="compose-top">
         <input id="text" type="text" maxlength="60" placeholder="说点什么，回车发送"
                spellcheck="false" autocomplete="off">
+        <button id="imgBtn" class="imgbtn" title="发图片（选好后再点一次取消）" aria-label="发图片">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="3" width="18" height="18" rx="3" />
+            <circle cx="9" cy="9" r="2" />
+            <path d="m21 15-4.2-4.2a1.6 1.6 0 0 0-2.3 0L6 19.5" />
+          </svg>
+        </button>
         <button id="send" class="send" title="发送" aria-label="发送">
           <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true">
             <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" />
@@ -26,6 +34,7 @@
           </svg>
         </button>
       </div>
+      <input type="file" id="imgInput" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
       <div class="compose-token" id="tokenRow" hidden>
         <input id="tokenInput" type="text" maxlength="32" placeholder="这个房间需要口令，填完回车"
                spellcheck="false" autocomplete="off">
@@ -33,8 +42,8 @@
       <div class="compose-bottom">
         <div class="colors" id="colors"></div>
         <button id="who" class="who" title="点这里改昵称 / 匿名"></button>
-        <span class="tips" id="tips"></span>
       </div>
+      <div class="compose-tips"><span class="tips" id="tips"></span></div>
     </div>
 
     <!-- ② 身份视图：第一次用时先设昵称或选匿名，之后不再打扰 -->
@@ -50,8 +59,8 @@
           <span class="knob"></span>
           <span>匿名</span>
         </label>
-        <span class="tips" id="identityTips">之后每次发言都用这个身份</span>
       </div>
+      <div class="compose-tips"><span class="tips" id="identityTips">之后每次发言都用这个身份</span></div>
     </div>
   </div>
 
@@ -62,6 +71,7 @@
   </div>
 </div>
 
+<script src="../shared/protocol.js"></script>
 <script src="./ball.js"></script>
 </body>
 </html>

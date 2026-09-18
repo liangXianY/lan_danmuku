@@ -215,3 +215,90 @@ textarea { resize: none; line-height: 1.5; }
   z-index: 50;
 }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* ---------------- 图片弹幕 ---------------- */
+
+.imgrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.imgbtn {
+  flex: none;
+  border: 1px solid #B4B2A9;
+  background: #fff;
+  color: #444441;
+  font-size: 13px;
+  padding: 7px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.imgbtn:active { background: #F1EFE8; }
+
+.imginfo {
+  font-size: 12px;
+  color: #888780;
+  line-height: 1.4;
+}
+
+.imgpreview {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.imgpreview img {
+  max-width: 100%;
+  max-height: 120px;
+  border-radius: 8px;
+  border: 1px solid #D3D1C7;
+}
+
+.imgremove {
+  flex: none;
+  border: none;
+  background: none;
+  color: #D85A30;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px 2px;
+}
+
+/* 看大图：全屏遮罩 */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 20, 22, 0.86);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  cursor: zoom-out;
+}
+
+/* display:flex 会压过 hidden 属性的浏览器默认样式，必须显式关掉，
+   否则遮罩从页面加载起就常驻全屏（整站被灰蒙版盖住点不了） */
+.lightbox[hidden] {
+  display: none;
+}
+
+.lightbox img {
+  max-width: 92vw;
+  max-height: 88vh;
+  border-radius: 8px;
+}
+
+/* 最近列表里的图片缩略图 */
+#recent li .thumb {
+  display: block;
+  max-width: 160px;
+  max-height: 72px;
+  border-radius: 6px;
+  margin-top: 4px;
+  cursor: zoom-in;
+}
+
+#recent li .thumb + .msg { margin-top: 2px; }

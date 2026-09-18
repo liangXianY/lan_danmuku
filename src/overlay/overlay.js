@@ -167,7 +167,7 @@
   // ---------------------------------------------------------------- 上屏
 
   function spawn (item) {
-    if (!item || !item.text) return
+    if (!item || (!item.text && !item.image)) return
 
     // 固定弹幕（控制台公告）：不滚动、不受暂停约束，直接落点显示
     if (item.mode === 'fixed') return drawFixed(item)
@@ -177,6 +177,9 @@
       if (buffer.length > 200) buffer.shift()
       return
     }
+
+    // 图片弹幕：大图卡片独占多条轨道，走独立渲染路径
+    if (item.image) return startImageCard(item)
 
     // 弹幕内容自带基准字号（协议 SIZE_DEFAULT=26）；本地「字号」设置是本机的缩放系数，
     // 只影响这块屏幕，不会跟着弹幕广播到别的设备
@@ -237,6 +240,112 @@
     const rec = { node, anim, laneIndex, size }
     active.add(rec)
     anim.onfinish = () => release(rec)
+  }
+
+  // ---------------------------------------------------------------- 图片弹幕
+
+  /** 图片卡片占用的轨道数（css 里图高 128 + 信息条约 32 ≈ 160px，约 4 条标准轨道） */
+  const IMG_LANES = 4
+
+  /** 图片加载完成后再上屏：宽度取决于图片真实比例，提前猜必错 */
+  function startImageCard (item) {
+    const probe = new Image()
+    probe.onload = () => drawImageCard(item, probe)
+    probe.onerror = () => {} // 服务端已校验过，这里兜底静默丢弃
+    probe.src = item.image
+  }
+
+  /**
+   * 图片卡片的多轨调度：占连续 span 条轨道。
+   * 在所有「连续 span 条」的窗口里挑窗口内最晚空闲时间最早的，
+   * 然后把窗口内每条轨道的 availableAt 都推后 —— 后续文字弹幕
+   * 落进这几条轨道时自然排在图片之后，不会穿过卡片。
+   */
+  function pickLanesForImage (now, width) {
+    const span = Math.min(IMG_LANES, lanes.length)
+    let best = 0
+    let earliest = Infinity
+    for (let i = 0; i + span <= lanes.length; i++) {
+      let latest = 0
+      for (let j = i; j < i + span; j++) {
+        if (lanes[j].availableAt > latest) latest = lanes[j].availableAt
+      }
+      if (latest < earliest) { earliest = latest; best = i }
+    }
+    let startAt = Math.max(now, earliest)
+    if (startAt - now > MAX_LEAD_MS) startAt = now // 排队太久宁可轻微重叠
+    const passMs = (width + cfg.laneGap) / pxPerMs()
+    for (let j = best; j < best + span; j++) lanes[j].availableAt = startAt + passMs
+    return { index: best, startAt }
+  }
+
+  function drawImageCard (item, loaded) {
+    if (cfg.paused) {
+      buffer.push(item)
+      if (buffer.length > 200) buffer.shift()
+      return
+    }
+
+    const node = document.createElement('div')
+    node.className = 'dm-img'
+    node.appendChild(loaded) // dataURL 已缓存，插进卡片瞬间就绪
+    if (item.name || item.text) {
+      const bar = document.createElement('div')
+      bar.className = 'dm-img-bar'
+      if (item.name) {
+        const who = document.createElement('span')
+        who.className = 'who'
+        who.textContent = item.name
+        bar.appendChild(who)
+      }
+      if (item.text) {
+        const cap = document.createElement('span')
+        cap.textContent = item.text
+        bar.appendChild(cap)
+      }
+      node.appendChild(bar)
+    }
+
+    stage.appendChild(node) // 初始 translate3d(100vw) 在屏幕外，先量宽
+    const width = node.offsetWidth || 220
+    const now = performance.now()
+    const lane = pickLanesForImage(now, width)
+    const delay = lane.startAt - now
+
+    const run = () => {
+      if (cfg.paused) {
+        node.remove()
+        buffer.push(item)
+        if (buffer.length > 200) buffer.shift()
+        return
+      }
+      node.style.top = `${lane.index * laneHeight}px`
+      stage.appendChild(node)
+      const durationMs = cfg.scrollDuration * 1000 * (stageWidth + width) / Math.max(1, stageWidth)
+      const anim = node.animate(
+        [
+          { transform: `translate3d(${stageWidth}px, 0, 0)` },
+          { transform: `translate3d(${-width}px, 0, 0)` }
+        ],
+        { duration: durationMs, easing: 'linear', fill: 'forwards' }
+      )
+      const rec = { node, anim, laneIndex: lane.index, size: 0, isImage: true }
+      active.add(rec)
+      // 图片卡片结构特殊，不进文本节点池：结束直接销毁（图片限流下频率很低，无性能压力）
+      anim.onfinish = () => {
+        active.delete(rec)
+        anim.onfinish = null
+        try { anim.cancel() } catch { /* 已结束 */ }
+        node.remove()
+      }
+    }
+
+    if (delay > 20) {
+      node.remove()
+      setTimeout(run, delay)
+    } else {
+      run()
+    }
   }
 
   // ---------------------------------------------------------------- 固定弹幕
@@ -317,6 +426,7 @@
     pool.splice(0, pool.length) // 清屏时把池子也倒了，顺便释放内存
     lanes.forEach(l => { l.availableAt = 0 })
     buffer = []
+    hoverRec = null // 被悬停暂停的弹幕可能已被清掉，避免拿到失效引用
     // 固定弹幕同样清掉
     for (const key of Object.keys(fixedActive)) {
       fixedActive[key].splice(0).forEach(n => n.remove())
@@ -362,6 +472,117 @@
   window.overlayBridge.onResume(() => setPaused(false))
 
   window.addEventListener('resize', () => relayout(true))
+
+  // ------------------------------------------------ 悬停暂停 & 图片放大
+
+  // 窗口默认鼠标穿透（forward:true 让页面仍能收到 mousemove）。
+  // 这里用 elementFromPoint 检测鼠标是否落在弹幕上：命中 → 请求主进程
+  // 关闭穿透并 pause 该弹幕；移开 → 恢复穿透并从暂停位置继续滚动。
+  // 只有状态变化才发 IPC，避免高频切换。
+
+  let mouseIgnore = true   // 当前穿透状态（true = 鼠标穿透给桌面）
+  let hoverRec = null      // 被悬停暂停的弹幕
+  let lightboxOpen = false // 图片放大查看期间保持可交互
+  let lastX = -1
+  let lastY = -1
+  let hoverRaf = false
+  /** 手抖过滤：鼠标位移小于该值不重新判定，避免路过的弹幕被轻微手抖误冻 */
+  const HOVER_JITTER = 6
+
+  function setIgnoreMouse (ignore) {
+    if (ignore === mouseIgnore) return
+    mouseIgnore = ignore
+    window.overlayBridge.setIgnoreMouse(ignore)
+  }
+
+  function pauseRec (rec) {
+    hoverRec = rec
+    try { rec.anim.pause() } catch { /* 动画可能已结束 */ }
+    rec.node.classList.add('hover-paused')
+  }
+
+  function resumeHover () {
+    if (!hoverRec) return
+    try { hoverRec.anim.play() } catch { /* 动画可能已结束 */ }
+    hoverRec.node.classList.remove('hover-paused')
+    hoverRec = null
+  }
+
+  function findRecByNode (node) {
+    for (const rec of active) if (rec.node === node) return rec
+    return null
+  }
+
+  function processHover (x, y) {
+    if (lightboxOpen) return // 放大查看期间保持可交互
+    const el = document.elementFromPoint(x, y)
+    const hit = el ? el.closest('.dm, .dm-img') : null
+    const rec = hit ? findRecByNode(hit) : null
+
+    if (hit) {
+      // 只有图片卡片需要真实点击（放大查看），才请求关闭鼠标穿透；
+      // 文字弹幕的悬停暂停只靠转发的 mousemove，穿透保持开启不挡桌面
+      setIgnoreMouse(hit.classList.contains('dm-img') ? false : true)
+      if (rec === hoverRec) return // 还压在同一条上，不动
+      resumeHover()                // 鼠标已离开原弹幕：恢复它
+      if (rec) pauseRec(rec)       // 压到新的一条：停住它
+    } else {
+      setIgnoreMouse(true)
+      resumeHover()
+    }
+  }
+
+  document.addEventListener('mousemove', e => {
+    if (Math.abs(e.clientX - lastX) < HOVER_JITTER &&
+        Math.abs(e.clientY - lastY) < HOVER_JITTER) return
+    lastX = e.clientX
+    lastY = e.clientY
+    if (hoverRaf) return
+    hoverRaf = true
+    requestAnimationFrame(() => {
+      hoverRaf = false
+      processHover(lastX, lastY)
+    })
+  })
+
+  // 图片悬停期间穿透已关：Windows 对透明窗口逐像素命中，鼠标移出图片卡片
+  // （不透明像素）后 mousemove 直接失联，仅靠事件流永远无法"移开恢复"。
+  // 主进程此时轮询全局光标位置推过来，用同一套判定把状态兜住。
+  if (window.overlayBridge.onCursor) {
+    window.overlayBridge.onCursor(pt => {
+      if (!pt || typeof pt.x !== 'number' || typeof pt.y !== 'number') return
+      lastX = pt.x
+      lastY = pt.y
+      processHover(lastX, lastY)
+    })
+  }
+
+  // -------- 点击图片弹幕放大到原比例 --------
+
+  const lightbox = document.getElementById('lightbox')
+  const lightboxImg = document.getElementById('lightboxImg')
+
+  stage.addEventListener('click', e => {
+    const card = e.target && e.target.closest ? e.target.closest('.dm-img') : null
+    if (!card) return
+    const img = card.querySelector('img')
+    if (!img) return
+    lightboxImg.src = img.src
+    lightbox.hidden = false
+    lightboxOpen = true
+  })
+
+  function closeLightbox () {
+    if (!lightboxOpen) return
+    lightboxOpen = false
+    lightbox.hidden = true
+    lightboxImg.removeAttribute('src')
+    // 关闭后立刻按当前鼠标位置重算穿透/暂停状态
+    processHover(lastX, lastY)
+  }
+
+  lightbox.addEventListener('click', closeLightbox)
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLightbox() })
 
   // 定期上报渲染侧状态，控制台用来判断"弹幕层是否真的在跑"
   setInterval(() => {

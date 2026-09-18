@@ -1,6 +1,6 @@
 {
   "name": "lan-danmaku",
-  "version": "0.3.8",
+  "version": "0.5.6",
   "description": "局域网实时弹幕系统 —— 主机模式提供弹幕源，加入模式让局域网电脑同步观看并发言",
   "main": "src/main/main.js",
   "author": "",

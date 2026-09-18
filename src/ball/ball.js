@@ -25,6 +25,8 @@
     identityView: $('identityView'),
     text: $('text'),
     send: $('send'),
+    imgBtn: $('imgBtn'),
+    imgInput: $('imgInput'),
     colors: $('colors'),
     who: $('who'),
     tips: $('tips'),
@@ -131,7 +133,8 @@
     els.tips.className = 'tips' + (kind ? ' ' + kind : '')
     clearTimeout(tipsTimer)
     if (message && kind) {
-      tipsTimer = setTimeout(refreshIdleTips, 2600)
+      // 错误停留 6 秒（2.6 秒太短，用户会以为软件坏了）；成功提示保持短驻留
+      tipsTimer = setTimeout(refreshIdleTips, kind === 'err' ? 6000 : 2600)
     }
   }
 
@@ -197,9 +200,12 @@
   })
 
   function renderIdentityChip () {
-    els.who.textContent = anonEffective()
-      ? '匿名'
-      : (state.identity.name || '设置昵称')
+    const anon = anonEffective()
+    const name = state.identity.name || ''
+    els.who.textContent = anon ? '匿名' : (name || '设置昵称')
+    // 长名字在 chip 里会被省略号截断，悬停能看到全名
+    els.who.title = (anon ? '匿名发言中' : (name ? `昵称：${name}` : '还没起名字'))
+      + ' · 点这里修改'
   }
 
   function renderView () {
@@ -270,12 +276,77 @@
     else openPanel()
   }
 
+  // ---------------------------------------------------------------- 图片
+
+  /** 待发送图片（dataURL）：选好即就绪，再点图按钮取消；发送成功自动清 */
+  let pendingImage = null
+
+  function setPendingImage (dataUrl) {
+    pendingImage = dataUrl || null
+    els.imgBtn.classList.toggle('active', !!pendingImage)
+    els.text.placeholder = pendingImage ? '图已选好，可配一句话（回车发送）' : '说点什么，回车发送'
+  }
+
+  // 文件选择对话框是系统窗口，会让本窗口失焦；这期间绝不能把面板收起来
+  let pickingImage = false
+
+  els.imgBtn.addEventListener('click', () => {
+    if (pendingImage) {
+      setPendingImage(null)
+      setTips('已取消图片', 'ok')
+      return
+    }
+    pickingImage = true
+    els.imgInput.click()
+  })
+
+  function handleImageFile (file) {
+    if (!file) return
+    setTips('正在处理图片…')
+    // 存下压缩 promise：发送时若还没压完就等它（粘贴/选图后立刻发也能一次成功）
+    imgReady = window.DanmakuProtocol.compressImage(file)
+      .then(dataUrl => {
+        const kb = Math.round((dataUrl.length - dataUrl.indexOf(',') - 1) * 3 / 4 / 1024)
+        setPendingImage(dataUrl)
+        setTips(`图片就绪（约 ${kb} KB），直接发送`, 'ok')
+      })
+      .catch(err => setTips(err.message || '图片处理失败', 'err'))
+      .finally(() => { imgReady = null })
+  }
+
+  els.imgInput.addEventListener('change', () => {
+    pickingImage = false
+    const file = els.imgInput.files && els.imgInput.files[0]
+    els.imgInput.value = '' // 读走引用就清，允许下次重选同一文件
+    handleImageFile(file)
+  })
+
+  // 粘贴截图：截图工具/聊天软件里复制的图，在输入框 Ctrl+V 直接挂上
+  document.addEventListener('paste', e => {
+    const items = (e.clipboardData && e.clipboardData.items) || []
+    for (const it of items) {
+      if (it.kind === 'file' && it.type.indexOf('image/') === 0) {
+        e.preventDefault()
+        handleImageFile(it.getAsFile())
+        return
+      }
+    }
+  })
+
   // ---------------------------------------------------------------- 发送
 
+  /** 压缩进行中的 promise（handleImageFile 里挂上，完成即清）；发送时先等它 */
+  let imgReady = null
+
   async function doSend () {
+    // 图片还在压缩：等一下再走正常流程，粘贴/选图后立刻点发送不再落空
+    if (imgReady) {
+      setTips('图片处理中，马上就好…')
+      try { await imgReady } catch { /* 失败提示已给过，走下面的空内容检查 */ }
+    }
     const text = els.text.value.trim()
-    if (!text) {
-      setTips('写点什么再发', 'err')
+    if (!text && !pendingImage) {
+      setTips('写点什么或选张图再发', 'err')
       return
     }
     if (!state.connected) {
@@ -285,14 +356,17 @@
 
     els.send.disabled = true
     try {
-      const res = await api.send({ text })
+      const res = await api.send({ text, image: pendingImage || undefined })
       if (!res || !res.ok) throw new Error((res && res.error) || '发送失败')
       els.text.value = ''
+      setPendingImage(null)
       setTips('已发出 ✓', 'ok')
       petPulse('jumping', 2) // 发出去，开心两连跳
       // 发完不自动收起：面板一直留着方便连发，点别处（窗口失焦）才隐藏
     } catch (err) {
       const msg = (err && err.message) || '发送失败'
+      // 失败绝不能无声：面板若收着先弹回来，错误提示（含屏蔽词命中词）停留更久
+      if (!expanded) openPanel()
       setTips(msg, 'err')
       petPulse('failed', 2) // 没发出去，蔫一下
       // 口令问题：聚焦口令输入行，让用户当场填，不用断开重连
@@ -446,9 +520,13 @@
   })
 
   // 点到别处就收起来 —— 桌宠不该赖在屏幕上
+  // 文件选择对话框打开期间例外：那是系统窗口，失焦不代表用户点了别处
   window.addEventListener('blur', () => {
+    if (pickingImage) return
     if (expanded && !els.petWrap.classList.contains('dragging')) closePanel()
   })
+  // 对话框取消时不会触发 change，窗口焦点回来后把标志复位
+  window.addEventListener('focus', () => { pickingImage = false })
 
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape' && expanded) closePanel()

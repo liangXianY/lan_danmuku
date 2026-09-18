@@ -50,6 +50,8 @@ const DEFAULTS = {
   rateMax: 5,
   /** 限流窗口（毫秒） */
   rateWindowMs: 3000,
+  /** 图片限流：两张图片弹幕的最小间隔秒数（0 = 不限流）；控制台可调，15 秒对日常活动太严 */
+  imageRateSec: 5,
   /** 控制台固定弹幕：上次选的落点 'top' | 'center' | 'bottom' */
   fixedPosition: 'center',
   /** 控制台固定弹幕：停留秒数（默认 8 秒） */

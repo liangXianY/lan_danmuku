@@ -95,6 +95,16 @@
   </section>
 
   <section class="card">
+    <h2>图片发送间隔</h2>
+    <div class="row">
+      <label for="imageRate">间隔(秒)</label>
+      <input type="number" id="imageRate" min="0" max="600" step="1">
+      <button class="btn small" id="saveImageRate">保存</button>
+    </div>
+    <p class="tip">同一个人两张图片弹幕的最小间隔。默认 5 秒，填 0 = 不限流。文字弹幕不受影响。改动即时生效。</p>
+  </section>
+
+  <section class="card">
     <h2>发送固定弹幕</h2>
     <textarea id="fixedText" rows="2" placeholder="要公告的内容，比如：中场休息 10 分钟"></textarea>
     <div class="row three">

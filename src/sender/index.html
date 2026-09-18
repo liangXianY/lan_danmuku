@@ -39,6 +39,19 @@
   </section>
 
   <section class="field">
+    <label>图片（可选）</label>
+    <div class="imgrow">
+      <button type="button" id="pickImg" class="imgbtn">选 择 图 片</button>
+      <span class="imginfo" id="imgInfo">png / jpg / webp / gif，大于 1MB 自动压缩，15 秒限一张</span>
+    </div>
+    <div class="imgpreview" id="imgPreview" hidden>
+      <img id="imgThumb" alt="图片预览">
+      <button type="button" id="imgRemove" class="imgremove">移除</button>
+    </div>
+    <input type="file" id="imgInput" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+  </section>
+
+  <section class="field">
     <label>颜色</label>
     <div class="colors" id="colors"></div>
     <label class="custom">
@@ -62,6 +75,10 @@
 </aside>
 
 <div id="toast" class="toast"></div>
+
+<div id="lightbox" class="lightbox" hidden>
+  <img id="lightboxImg" alt="查看大图">
+</div>
 
 <script src="../shared/protocol.js"></script>
 <script src="./app.js"></script>

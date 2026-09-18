@@ -1,6 +1,7 @@
 'use strict'
 
 const path = require('path')
+const fs = require('fs')
 const http = require('http')
 const {
   app, BrowserWindow, Tray, Menu, ipcMain, screen,
@@ -63,6 +64,16 @@ let store = null
 let server = null
 let tunnel = null
 let joinClient = null
+/**
+ * 主机模式的"发送端"：一个 internal 的 ws 客户端连到本机服务。
+ * 发送端与服务器端完全抽离 —— 主机桌宠和网页发送端、加入端桌宠
+ * 走完全相同的协议路径（校验/限流/屏蔽词/ACK 一份实现，行为必然一致）。
+ */
+let hostLink = null
+// 弹幕层看门狗：渲染层每 3 秒 report 一次心跳，长期没动静就重载弹幕层
+let lastOverlayReportAt = 0
+let lastOverlayReloadAt = 0
+let overlayWatchdog = null
 // 局域网自动发现：主机广播自己、加入端监听列表
 let discoveryBroadcaster = null
 let discoveryListener = null
@@ -73,6 +84,8 @@ let controlWindow = null
 let joinWindow = null
 let launcherWindow = null
 let ballWindow = null
+/** 弹幕层鼠标锁定：托盘里手动取消「鼠标穿透」勾选后为 true，渲染层的动态切换请求将被忽略 */
+let overlayMouseLock = false
 let tray = null
 let quitting = false
 let overlayReloads = 0
@@ -96,6 +109,8 @@ const state = {
   serverError: null,
   joinStatus: 'idle',
   joinError: null,
+  /** 主机模式内部发送通道（hostLink）的连接状态 */
+  hostLinkStatus: null,
   qrDataUrl: null,
   recent: [],
   logs: []
@@ -145,6 +160,29 @@ function log (level, msg) {
   if (state.logs.length > 120) state.logs.splice(0, state.logs.length - 120)
   console.log(`[${entry.level}] ${entry.msg}`)
   safeSend(controlWindow, 'control:log', entry)
+  appendLogFile(entry)
+}
+
+/** 日志落盘：配置目录/logs/lan-danmaku-日期.log，超 2MB 滚到 .old —— 窗口关了也能事后排查 */
+let logDirReady = false
+function appendLogFile (entry) {
+  try {
+    const dir = path.join(app.getPath('userData'), 'logs')
+    if (!logDirReady) {
+      fs.mkdirSync(dir, { recursive: true })
+      logDirReady = true
+    }
+    const day = new Date(entry.ts).toISOString().slice(0, 10)
+    const file = path.join(dir, `lan-danmaku-${day}.log`)
+    if (fs.existsSync(file) && fs.statSync(file).size > 2 * 1024 * 1024) {
+      fs.renameSync(file, path.join(dir, `lan-danmaku-${day}.old.log`))
+    }
+    fs.appendFileSync(
+      file,
+      `[${new Date(entry.ts).toLocaleString('zh-CN', { hour12: false })}] [${entry.level}] ${entry.msg}\n`,
+      'utf8'
+    )
+  } catch { /* 日志写盘失败不影响主流程 */ }
 }
 
 function publicState () {
@@ -610,7 +648,7 @@ function ballPublicState () {
   const mode = currentMode()
   const connected = mode === 'join'
     ? state.joinStatus === 'open'
-    : (!!state.port && !state.serverError)
+    : state.hostLinkStatus === 'open'
   return {
     identity: {
       name: store ? (store.get('senderName') || '') : '',
@@ -633,33 +671,59 @@ function pushBallState () {
   safeSend(ballWindow, 'ball:state', ballPublicState())
 }
 
-/** 主机本机发送走本地房间；加入端走与主机的那根 ws —— 校验/限流/屏蔽词都在主机那份实现里 */
-async function sendFromBall (text) {
-  const clean = String(text || '').trim()
-  if (!clean) throw new Error('内容不能为空')
+/**
+ * 主机模式的本机发送通道：internal ws 客户端连 127.0.0.1:端口。
+ * 服务重启/端口变化后重连由 JoinClient 自己的自动重连兜底。
+ */
+function startHostLink () {
+  if (!server || !state.port) return
+  stopHostLink()
+  hostLink = new JoinClient({ onLog: log, internal: true })
+  // 接收回广播只用于桌宠"挥个手"；最近弹幕/控制台列表仍走 room.onDanmaku 直调，
+  // 这条 internal 连接不重复分发给弹幕层（主机也没有弹幕层）
+  hostLink.onDanmaku = () => {}
+  hostLink.onStatus = (status, detail) => {
+    state.hostLinkStatus = status
+    if (status === 'open') log('info', '主机发送通道已就绪（本机回环，与发送端同一条协议路径）')
+    else if (status === 'connecting') log('info', '主机发送通道连接中…')
+    else if (status === 'closed') log('warn', `主机发送通道断开（${detail || '未知原因'}），将自动重连`)
+    pushBallState()
+  }
+  hostLink.connect(`127.0.0.1:${state.port}`)
+}
+
+function stopHostLink () {
+  if (hostLink) {
+    hostLink.disconnect()
+    hostLink = null
+  }
+  state.hostLinkStatus = null
+}
+
+/** 主机本机发送走 internal ws 客户端；加入端走与主机的那根 ws —— 两端同一条协议路径 */
+async function sendFromBall (payload) {
+  const p = payload || {}
+  const clean = String(p.text || '').trim()
+  const image = p.image || undefined
+  // 文字和图片至少得有一样；图片上限/格式由服务器统一校验，这里不重复实现
+  if (!clean && !image) throw new Error('内容不能为空')
 
   // 强制实名：没填昵称直接给明确提示，引导去身份面板填名字
   if (namePolicyState() === 'required' && !store.get('senderName')) {
     throw new Error(REJECT_TEXT.NEED_NAME || '服务器要求填昵称才能发言')
   }
 
-  if (currentMode() === 'join') {
-    if (!joinClient || state.joinStatus !== 'open') throw new Error('还没连上主机')
-    await joinClient.send({
-      text: clean,
-      name: senderDisplayName(),
-      color: store.get('senderColor')
-    })
-    return true
-  }
+  const isJoin = currentMode() === 'join'
+  const link = isJoin ? joinClient : hostLink
+  const linkOpen = isJoin ? state.joinStatus === 'open' : state.hostLinkStatus === 'open'
+  if (!link || !linkOpen) throw new Error(isJoin ? '还没连上主机' : '弹幕服务还没就绪')
 
-  if (!server) throw new Error('弹幕服务还没起来')
-  const result = server.room.publishLocal({
+  await link.send({
     text: clean,
+    image,
     name: senderDisplayName(),
     color: store.get('senderColor')
   })
-  if (!result.ok) throw new Error(REJECT_TEXT[result.code] || '发送失败')
   return true
 }
 
@@ -695,6 +759,7 @@ async function teardownModeRuntime () {
   tearingDown = true
   if (server) { await server.stop().catch(() => {}); server = null }
   if (joinClient) { joinClient.disconnect(); joinClient = null }
+  stopHostLink()
   if (discoveryBroadcaster) { discoveryBroadcaster.stop(); discoveryBroadcaster = null }
   if (discoveryListener) { discoveryListener.stop(); discoveryListener = null }
   if (tunnel && tunnel.status().running) tunnel.stop()
@@ -779,9 +844,31 @@ function startHostMode () {
   return restartServer().then(() => {})
 }
 
+/**
+ * 弹幕层看门狗：渲染层每 3 秒 report 一次心跳。进程活着但卡死/事件循环停摆时，
+ * 崩溃恢复钩子是收不到事件的 —— 心跳超时是唯一能发现这种情况的信号。
+ * 长时间运行后"消息发得出去但屏幕上没弹幕"就是这种静默卡死，自动重载恢复。
+ */
+function startOverlayWatchdog () {
+  if (overlayWatchdog) return
+  overlayWatchdog = setInterval(() => {
+    if (quitting) return
+    if (!overlayWindow || overlayWindow.isDestroyed() || !overlayWindow.isVisible()) return
+    if (!lastOverlayReportAt) return // 首次加载还没完成，不误判
+    if (Date.now() - lastOverlayReportAt < 20000) return
+    if (Date.now() - lastOverlayReloadAt < 30000) return
+    lastOverlayReloadAt = Date.now()
+    lastOverlayReportAt = 0
+    log('warn', '弹幕层心跳超时（20 秒无上报），自动重载弹幕层窗口')
+    overlayWindow.webContents.reload()
+  }, 5000)
+  if (overlayWatchdog.unref) overlayWatchdog.unref()
+}
+
 function startJoinMode () {
   createOverlayWindow()
   createJoinWindow()
+  startOverlayWatchdog()
   // 加入端的主要动作就是发言，进模式就把球放到桌面上（不想留就右键收起，托盘可再调出来）
   showBall()
 
@@ -892,8 +979,9 @@ function updateTrayMenu () {
     items.push({
       label: '鼠标穿透（勾选=可点到桌面）',
       type: 'checkbox',
-      checked: true,
+      checked: !overlayMouseLock,
       click: item => {
+        overlayMouseLock = !item.checked
         if (overlayWindow && !overlayWindow.isDestroyed()) {
           overlayWindow.setIgnoreMouseEvents(item.checked, { forward: true })
           log('info', item.checked ? '弹幕层已开启鼠标穿透' : '弹幕层已锁定鼠标（临时）')
@@ -955,6 +1043,7 @@ function doClear () {
 }
 
 async function restartServer () {
+  stopHostLink()
   // 服务重启端口可能变化，旧隧道指向的本地端口就失效了，直接关掉让用户重开
   if (tunnel && tunnel.status().running) {
     tunnel.stop()
@@ -992,6 +1081,9 @@ async function restartServer () {
     // 服务起来就开始广播"我在这"，加入端的自动发现靠它
     discoveryBroadcaster = new DiscoveryBroadcaster({ port, onLog: log })
     discoveryBroadcaster.start()
+
+    // 主机桌宠的发送通道：和发送端同一条 ws 协议（完全抽离）
+    startHostLink()
   } catch (err) {
     state.serverError = err.message
     state.port = null
@@ -1019,6 +1111,8 @@ function onDanmaku (item) {
 function registerIpc () {
   ipcMain.on('overlay:ready', () => {
     state.overlayReady = true
+    lastOverlayReportAt = Date.now()
+    overlayReloads = 0 // 正常跑起来就重置崩溃重载预算
     log('info', '弹幕层已就绪')
     const history = currentMode() === 'join'
       ? (joinClient ? joinClient.history.slice(-20) : [])
@@ -1031,6 +1125,7 @@ function registerIpc () {
   })
 
   ipcMain.on('overlay:report', (_e, payload) => {
+    lastOverlayReportAt = Date.now()
     state.overlayHealth = payload
   })
 
@@ -1167,6 +1262,49 @@ function registerIpc () {
     if (win && !win.isDestroyed()) win.close()
   })
 
+  // ---------------- 弹幕层 IPC ----------------
+
+  /** 光标轮询句柄：仅图片悬停（穿透关闭）期间运行，见 overlay:set-ignore */
+  let overlayCursorTimer = null
+
+  function stopOverlayCursorPoll () {
+    if (overlayCursorTimer) {
+      clearInterval(overlayCursorTimer)
+      overlayCursorTimer = null
+    }
+  }
+
+  function startOverlayCursorPoll () {
+    if (overlayCursorTimer) return
+    overlayCursorTimer = setInterval(() => {
+      if (!overlayWindow || overlayWindow.isDestroyed() || !overlayWindow.isVisible()) {
+        return stopOverlayCursorPoll()
+      }
+      const pt = screen.getCursorScreenPoint()
+      const b = overlayWindow.getBounds()
+      // 屏幕坐标 → 窗口客户区坐标（overlay 全屏窗口与页面坐标系一致，均为 DIP）
+      overlayWindow.webContents.send('overlay:cursor', { x: pt.x - b.x, y: pt.y - b.y })
+    }, 60)
+  }
+
+  /**
+   * 动态鼠标穿透：弹幕层平时穿透（不挡桌面操作），渲染层检测到鼠标
+   * 悬停在弹幕上时请求关闭穿透以便暂停/点击，移开后恢复。
+   * 管理员在托盘里手动锁定时，渲染层的请求一律忽略。
+   */
+  ipcMain.on('overlay:set-ignore', (e, ignore) => {
+    if (overlayMouseLock) return
+    if (overlayWindow && !overlayWindow.isDestroyed() &&
+        e.sender === overlayWindow.webContents) {
+      overlayWindow.setIgnoreMouseEvents(!!ignore, { forward: true })
+      // 穿透关闭期间（图片悬停）启动全局光标轮询：Windows 对透明窗口逐像素
+      // 命中，鼠标移出图片卡片后窗口收不到任何 mousemove，必须由主进程把
+      // 光标位置推过去，渲染层才能判定"已移开"并恢复滚动/恢复穿透。
+      if (ignore) stopOverlayCursorPoll()
+      else startOverlayCursorPoll()
+    }
+  })
+
   // ---------------- 桌宠 IPC ----------------
 
   ipcMain.handle('ball:get-state', () => ballPublicState())
@@ -1194,7 +1332,7 @@ function registerIpc () {
    */
   ipcMain.handle('ball:send', async (_e, payload) => {
     try {
-      await sendFromBall(payload && payload.text)
+      await sendFromBall(payload || {})
       return { ok: true }
     } catch (err) {
       return { ok: false, error: err.message || '发送失败' }
@@ -1444,6 +1582,7 @@ if (!gotLock) {
 
   app.on('before-quit', async () => {
     quitting = true
+    stopHostLink()
     if (tunnel) tunnel.destroy()
     if (server) await server.stop().catch(() => {})
     if (joinClient) joinClient.disconnect()

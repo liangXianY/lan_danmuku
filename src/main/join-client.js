@@ -13,6 +13,8 @@ const PING_MS = 20000
 const RETRY_BASE_MS = 1000
 const RETRY_MAX_MS = 5000
 const SEND_TIMEOUT_MS = 6000
+/** 图片消息体是 base64 大 JSON（可到 1.4MB+），公网上行慢，6 秒极易误报"主机没响应" */
+const SEND_IMAGE_TIMEOUT_MS = 20000
 /** ws.readyState 的 OPEN —— 直接用字面量，省得依赖 ws 包里的常量导出 */
 const OPEN_STATE = 1
 
@@ -40,8 +42,10 @@ function parseHostInput (input) {
 }
 
 class JoinClient {
-  constructor ({ onLog }) {
+  constructor ({ onLog, internal } = {}) {
     this.onLog = onLog || (() => {})
+    /** 主机内部发送通道（主机进程自连的 ws）：连接 URL 带 ?internal=1，不占在线设备数 */
+    this.internal = !!internal
     /** 状态变化：(status, detail, origin) —— status: idle | connecting | open | closed */
     this.onStatus = () => {}
     this.onDanmaku = () => {}
@@ -78,6 +82,9 @@ class JoinClient {
     /** 本机发出的、还没收到回执的消息：reqId -> 超时定时器 */
     this._pending = new Map()
     this._seq = 0
+    /** 最近收到弹幕的 id 环形表：重连竞态等极端情况下同一弹幕到两遍时兜底去重 */
+    this._recentIds = new Set()
+    this._recentIdQueue = []
   }
 
   connect (input) {
@@ -86,7 +93,9 @@ class JoinClient {
     this.disconnect()
     this._manual = false
     this.origin = parsed.origin
-    this._target = parsed.wsUrl
+    // 内部通道在连接 URL 上直接亮明身份：服务端 addClient 阶段就能标记，
+    // 不用等 HELLO —— 否则日志会先打一条误导性的「127.0.0.1 已连接（在线 1）」
+    this._target = parsed.wsUrl + (this.internal ? '?internal=1' : '')
     this._open()
     return true
   }
@@ -110,24 +119,26 @@ class JoinClient {
    * 走的是同一根 ws —— 主机的限流、屏蔽词、长度校验全都自动复用，
    * 不用在客户端重写一遍规则（重写必漂移）。
    */
-  send ({ text, name, color, size }) {
+  send ({ text, name, color, size, image }) {
     const ws = this.ws
     if (!ws || ws.readyState !== OPEN_STATE) {
       return Promise.reject(new Error('还没连上主机'))
     }
 
     const reqId = 's' + (++this._seq)
+    const timeoutMs = image ? SEND_IMAGE_TIMEOUT_MS : SEND_TIMEOUT_MS
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this._pending.delete(reqId)
-        reject(new Error('主机没响应'))
-      }, SEND_TIMEOUT_MS)
+        reject(new Error(image ? '图片传输超时，网络较慢或没连上主机' : '主机没响应'))
+      }, timeoutMs)
       if (timer.unref) timer.unref()
 
       this._pending.set(reqId, { resolve, reject, timer })
 
       try {
-        ws.send(JSON.stringify({ type: MSG.SEND, reqId, text, name, color, size }))
+        // image 为 undefined 时 JSON.stringify 会自动省掉该字段，不带空壳
+        ws.send(JSON.stringify({ type: MSG.SEND, reqId, text, name, color, size, image }))
       } catch (err) {
         clearTimeout(timer)
         this._pending.delete(reqId)
@@ -157,6 +168,7 @@ class JoinClient {
           type: MSG.HELLO,
           name: this.identityName || '',
           token: this.roomToken,
+          internal: this.internal || undefined,
           reqId: reqId || 'hello'
         }))
       } catch { /* ignore */ }
@@ -179,6 +191,15 @@ class JoinClient {
   }
 
   _open () {
+    // 重连竞态防护：上一条连接的 close/error 事件可能迟到，
+    // 若不隔离，会在新连接建立后又被排一次重连，出现两条并存连接
+    // （每条都收一遍广播 → 弹幕重复上屏）。先彻底废掉旧 socket。
+    if (this.ws) {
+      const stale = this.ws
+      this.ws = null
+      try { stale.removeAllListeners() } catch { /* ignore */ }
+      try { stale.terminate() } catch { /* ignore */ }
+    }
     this._setStatus('connecting', null)
     let ws
     try {
@@ -190,6 +211,7 @@ class JoinClient {
     this.ws = ws
 
     ws.on('open', () => {
+      if (ws !== this.ws) return // 迟到的旧 socket 事件，忽略
       this._retry = 0
       this._setStatus('open', null)
       this._hello('join')
@@ -202,15 +224,18 @@ class JoinClient {
     })
 
     ws.on('message', data => {
+      if (ws !== this.ws) return
       let msg
       try { msg = JSON.parse(data.toString()) } catch { return }
       this._handle(msg)
     })
 
     ws.on('close', () => {
+      if (ws !== this.ws) return
       if (!this._manual) this._retryLater('连接已断开')
     })
     ws.on('error', err => {
+      if (ws !== this.ws) return
       if (!this._manual) this._retryLater(err.code || String(err.message || err))
     })
   }
@@ -220,6 +245,7 @@ class JoinClient {
     this._setStatus('closed', detail)
     if (this._reconnectTimer) return // close 和 error 可能都来，只排一次
     const delay = Math.min(RETRY_BASE_MS * Math.pow(1.6, this._retry++), RETRY_MAX_MS)
+    this.onLog({ level: 'warn', msg: `${detail || '连接异常'}，${Math.round(delay)}ms 后重连（第 ${this._retry} 次）`, ts: Date.now() })
     this._reconnectTimer = setTimeout(() => {
       this._reconnectTimer = null
       this._open()
@@ -229,7 +255,23 @@ class JoinClient {
   _handle (msg) {
     switch (msg.type) {
       case MSG.DANMAKU:
-        if (msg.item && msg.item.text) {
+        // 文字或图片至少有一样才算有效弹幕。之前只判 text —— 加入端收到的
+        // 纯图片弹幕在这里被整条丢弃（控制台有记录、弹幕层和页面全没有），
+        // 这是"纯图不显示"在加入模式下的真正根因。
+        if (msg.item && (msg.item.text || msg.item.image)) {
+          // 双连接/重发兜底：同一 id 的弹幕只上屏一次
+          if (msg.item.id) {
+            if (this._recentIds.has(msg.item.id)) {
+              this.onLog({ level: 'warn', msg: `丢弃重复弹幕（id ${msg.item.id}），多连接兜底生效`, ts: Date.now() })
+              break
+            }
+            this._recentIds.add(msg.item.id)
+            this._recentIdQueue.push(msg.item.id)
+            if (this._recentIdQueue.length > 400) {
+              const old = this._recentIdQueue.shift()
+              this._recentIds.delete(old)
+            }
+          }
           this.history.push(msg.item)
           if (this.history.length > HISTORY_MAX) this.history.splice(0, this.history.length - HISTORY_MAX)
           this.onDanmaku(msg.item)

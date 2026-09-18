@@ -24,7 +24,15 @@
     send: $('send'),
     hint: $('hint'),
     recent: $('recent'),
-    toast: $('toast')
+    toast: $('toast'),
+    imgInput: $('imgInput'),
+    pickImg: $('pickImg'),
+    imgPreview: $('imgPreview'),
+    imgThumb: $('imgThumb'),
+    imgRemove: $('imgRemove'),
+    imgInfo: $('imgInfo'),
+    lightbox: $('lightbox'),
+    lightboxImg: $('lightboxImg')
   }
 
   const LS_KEY = 'lan-danmaku-sender'
@@ -42,6 +50,8 @@
   let reconnectDelay = 800
   let pingTimer = null
   const pending = new Map()
+  /** 待发送的图片（dataURL）。文字和图片至少有一样才能发 */
+  let pendingImage = null
   /** 服务器昵称政策：'required'=强制实名（必须填昵称），'free'=允许匿名，null=未知（旧版服务器） */
   let serverNamePolicy = null
 
@@ -75,11 +85,68 @@
 
   function refreshSendButton () {
     const hasText = els.text.value.trim().length > 0
-    els.send.disabled = !hasText || !connected
+    const hasImage = !!pendingImage
+    els.send.disabled = (!hasText && !hasImage) || !connected
     if (!connected) setHint('还没连上主机，正在重试…')
-    else if (!hasText) setHint('输入点什么就能发了')
+    else if (!hasText && !hasImage) setHint('输入点什么就能发了')
+    else if (hasImage && !hasText) setHint('图片已就绪，直接发送', 'ok')
     else setHint('按发送，弹幕会从屏幕右侧滚出来', 'ok')
   }
+
+  // ---------------------------------------------------------------- 图片选择
+
+  function setPendingImage (dataUrl, note) {
+    pendingImage = dataUrl || null
+    els.imgPreview.hidden = !pendingImage
+    if (pendingImage) {
+      els.imgThumb.src = pendingImage
+      els.imgInfo.textContent = note || '图片已就绪，可配一句文字一起发'
+    } else {
+      els.imgInfo.textContent = 'png / jpg / webp / gif，大于 1MB 自动压缩，15 秒限一张'
+      els.imgInput.value = ''
+    }
+    refreshSendButton()
+  }
+
+  function handleImageFile (file) {
+    if (!file) return
+    setHint('正在处理图片…')
+    window.DanmakuProtocol.compressImage(file)
+      .then(dataUrl => {
+        const kb = Math.round((dataUrl.length - dataUrl.indexOf(',') - 1) * 3 / 4 / 1024)
+        setPendingImage(dataUrl, `图片已就绪（约 ${kb} KB），可配一句文字一起发`)
+        buzz(10)
+      })
+      .catch(err => {
+        setHint(err.message || '图片处理失败', 'err')
+        toast(err.message || '图片处理失败', 2200)
+        buzz([20, 40, 20])
+      })
+  }
+
+  els.pickImg.addEventListener('click', () => els.imgInput.click())
+  els.imgInput.addEventListener('change', () => handleImageFile(els.imgInput.files[0]))
+  els.imgRemove.addEventListener('click', () => setPendingImage(null))
+
+  // 粘贴截图：qq/微信/截图工具复制后直接 Ctrl+V 就能发
+  document.addEventListener('paste', e => {
+    const items = (e.clipboardData && e.clipboardData.items) || []
+    for (const it of items) {
+      if (it.kind === 'file' && it.type.indexOf('image/') === 0) {
+        e.preventDefault()
+        handleImageFile(it.getAsFile())
+        return
+      }
+    }
+  })
+
+  // 拖拽图片进来
+  document.addEventListener('dragover', e => e.preventDefault())
+  document.addEventListener('drop', e => {
+    e.preventDefault()
+    const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]
+    if (file && file.type.indexOf('image/') === 0) handleImageFile(file)
+  })
 
   // ---------------------------------------------------------------- 颜色 & 快捷语
 
@@ -314,10 +381,10 @@
 
   function onSendSuccess () {
     els.text.value = ''
+    setPendingImage(null)
     onTextChange()
     buzz(15)
     toast('发出去了', 1200)
-    if (ws && ws.readyState === WebSocket.OPEN && navigator.vibrate) { /* 已在 buzz 里 */ }
   }
 
   // ---------------------------------------------------------------- 最近弹幕
@@ -330,7 +397,7 @@
   }
 
   function addRecent (item) {
-    if (!item || !item.text) return
+    if (!item || (!item.text && !item.image)) return
     const empty = els.recent.querySelector('.empty')
     if (empty) empty.remove()
 
@@ -338,12 +405,28 @@
     const who = document.createElement('span')
     who.className = 'who'
     who.textContent = item.name || '匿名'
-    const msg = document.createElement('span')
-    msg.className = 'msg'
-    msg.textContent = item.text
-    msg.style.color = item.color || 'inherit'
     li.appendChild(who)
-    li.appendChild(msg)
+
+    if (item.image) {
+      // 图片弹幕：缩略图直接挂列表里，点开看大图
+      const thumb = document.createElement('img')
+      thumb.className = 'thumb'
+      thumb.src = item.image
+      thumb.alt = '图片弹幕'
+      thumb.addEventListener('click', () => {
+        els.lightboxImg.src = item.image
+        els.lightbox.hidden = false
+      })
+      li.appendChild(thumb)
+    }
+
+    if (item.text) {
+      const msg = document.createElement('span')
+      msg.className = 'msg'
+      msg.textContent = item.text
+      msg.style.color = item.color || 'inherit'
+      li.appendChild(msg)
+    }
 
     els.recent.insertBefore(li, els.recent.firstChild)
     while (els.recent.children.length > RECENT_MAX) {
@@ -351,17 +434,21 @@
     }
   }
 
+  // 点击遮罩任意处关闭大图
+  els.lightbox.addEventListener('click', () => { els.lightbox.hidden = true })
+
   // ---------------------------------------------------------------- 发送
 
   function doSend () {
     const text = els.text.value.trim()
-    if (!text) return
+    if (!text && !pendingImage) return
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       toast('还没连上主机')
       return
     }
 
     const reqId = 'r' + (++reqSeq)
+    const hadImage = !!pendingImage
     pending.set(reqId, Date.now())
 
     try {
@@ -369,6 +456,7 @@
         type: MSG.SEND,
         reqId,
         text,
+        image: pendingImage || undefined,
         name: els.name.value.trim(),
         color: prefs.color
       }))
@@ -378,13 +466,19 @@
       return
     }
 
-    // 服务端没回执就提示一下，避免用户以为发出去了
+    // 回执没回来前按钮先禁着，防连点重复发图
+    els.send.disabled = true
+
+    // 图片消息体是 base64 大 JSON，公网上行慢，6 秒极易误报——带图放宽到 20 秒
+    const timeout = hadImage ? 20000 : ACK_TIMEOUT
     setTimeout(() => {
       if (pending.has(reqId)) {
         pending.delete(reqId)
-        toast('主机没响应，检查一下网络')
+        els.send.disabled = false
+        refreshSendButton()
+        toast(hadImage ? '图片传输超时，网络较慢或没连上主机' : '主机没响应，检查一下网络')
       }
-    }, ACK_TIMEOUT)
+    }, timeout)
   }
 
   els.send.addEventListener('click', doSend)

@@ -25,7 +25,8 @@ html, body {
   white-space: nowrap;
   font-weight: 600;
   line-height: 1.3;
-  pointer-events: none;
+  /* 弹幕本体可命中（悬停暂停），stage 的透明区域仍是 none 不挡桌面 */
+  pointer-events: auto;
   will-change: transform;
   transform: translate3d(100vw, 0, 0);
   /* 桌面背景深浅不可控，必须靠描边+阴影保证任何背景下都读得清 */
@@ -40,6 +41,48 @@ html, body {
 .dm .who {
   opacity: 0.72;
   font-weight: 400;
+}
+
+/* 图片弹幕卡片：独占多条轨道的大图，深色半透明底保证深浅桌面都醒目 */
+.dm-img {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: auto;   /* 可悬停暂停、可点击放大 */
+  cursor: zoom-in;
+  will-change: transform;
+  transform: translate3d(100vw, 0, 0);
+  background: rgba(15, 15, 18, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.dm-img img {
+  display: block;
+  height: 128px;
+  width: auto;
+  max-width: 480px;
+  object-fit: cover;
+}
+
+/* 卡片底部信息条：昵称 + 可选文字 */
+.dm-img .dm-img-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  font-size: 13px;
+  line-height: 1.2;
+  color: #FFFFFF;
+  white-space: nowrap;
+  max-width: 480px;
+  overflow: hidden;
+}
+
+.dm-img .dm-img-bar .who {
+  opacity: 0.72;
+  flex: none;
 }
 
 /* 固定弹幕的全屏独立层：stage 被限高成顶部弹幕带，中间/下方落点必须挂在它外面才不会被裁掉 */
@@ -91,4 +134,33 @@ html, body {
     0 0 2px rgba(0, 0, 0, 0.9),
     -1px 0 0 rgba(0, 0, 0, 0.7), 1px 0 0 rgba(0, 0, 0, 0.7),
     0 -1px 0 rgba(0, 0, 0, 0.7), 0 1px 0 rgba(0, 0, 0, 0.7);
+}
+
+/* 弹幕图片放大查看：全屏遮罩，图片按原比例完整展示，点击任意处关闭 */
+#lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: zoom-out;
+}
+
+#lightbox[hidden] { display: none; }
+
+#lightbox img {
+  max-width: 92vw;
+  max-height: 92vh;
+  width: auto;
+  height: auto;
+  border-radius: 8px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5);
+}
+
+/* 被悬停暂停的弹幕：轻微变暗，让用户看清哪条是自己停下的 */
+.dm.hover-paused,
+.dm-img.hover-paused {
+  filter: brightness(0.78);
 }

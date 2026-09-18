@@ -15,5 +15,14 @@ contextBridge.exposeInMainWorld('overlayBridge', {
   onConfig: cb => ipcRenderer.on('overlay:config', (_e, cfg) => cb(cfg)),
 
   /** 上报渲染侧健康度，控制台用来显示"渲染是否正常" */
-  report: payload => ipcRenderer.send('overlay:report', payload)
+  report: payload => ipcRenderer.send('overlay:report', payload),
+
+  /**
+   * 动态鼠标穿透：悬停弹幕时请求关闭穿透（false=弹幕可交互），
+   * 移开后请求恢复穿透（true=点击落到桌面）。主进程在手动锁定时忽略。
+   */
+  setIgnoreMouse: ignore => ipcRenderer.send('overlay:set-ignore', !!ignore),
+
+  /** 图片悬停期间主进程轮询全局光标位置（透明区域收不到 mousemove 的兜底） */
+  onCursor: cb => ipcRenderer.on('overlay:cursor', (_e, pt) => cb(pt))
 })

@@ -1,6 +1,6 @@
 'use strict'
 
-const { MSG, LIMITS, REJECT, REJECT_TEXT } = require('../shared/protocol')
+const { MSG, LIMITS, REJECT, REJECT_TEXT, IMAGE_MIME_RE } = require('../shared/protocol')
 
 const HEX_COLOR = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
 const DEFAULT_COLOR = '#FFFFFF'
@@ -74,12 +74,22 @@ class Room {
   addClient (ws, req) {
     const ip = this.clientIp(req)
     const cfg = this.getConfig()
+    // 连接 URL 亮明的内部通道身份（?internal=1）只有本机回环连接才认：
+    // 内部通道解析出的 IP 若是隧道真实地址就不再是回环，伪造不进来；
+    // 局域网用户改个 URL 把在线数藏掉更不行。
+    const isLoopback = ip === '127.0.0.1' || ip === '::1'
+    let urlInternal = false
+    if (isLoopback && req && typeof req.url === 'string') {
+      try { urlInternal = new URL(req.url, 'http://localhost').searchParams.get('internal') === '1' } catch { /* ignore */ }
+    }
     const client = {
       id: `c${(++this.seq).toString(36)}`,
       /** 昵称：HELLO 时上报的原始值（可能为空）；显示名在 publish 里统一决定 */
       name: '',
       ip,
       key: ip,
+      /** 主机内部发送通道（主机进程自连的 ws）：不占在线设备数 */
+      internal: urlInternal,
       /** 'guest' 或 'admin'（通过 AUTH 认证后升级） */
       role: 'guest',
       /** 服务器设了房间口令时，发送权限以 HELLO 里带的口令为准；观看不受限 */
@@ -90,8 +100,13 @@ class Room {
       lastSeen: Date.now()
     }
     this.clients.set(ws, client)
-    this.onLog({ level: 'info', msg: `${ip} 已连接（在线 ${this.clients.size}）` })
-    this.sendTo(ws, { type: MSG.STATS, online: this.clients.size })
+    if (urlInternal) {
+      // 内部通道不打印 IP 和在线数：那是主机自己连自己，打出来只会误导（「127.0.0.1 已连接（在线 1）」）
+      this.onLog({ level: 'info', msg: '主机内部发送通道已接入（不计入在线数）' })
+    } else {
+      this.onLog({ level: 'info', msg: `${ip} 已连接（在线 ${this.online()}）` })
+    }
+    this.sendTo(ws, { type: MSG.STATS, online: this.online() })
     if (this.history.length) {
       this.sendTo(ws, { type: MSG.HISTORY, items: this.history.slice(-30) })
     }
@@ -103,7 +118,8 @@ class Room {
     const client = this.clients.get(ws)
     if (!client) return
     this.clients.delete(ws)
-    this.onLog({ level: 'info', msg: `${client.ip} 已断开（在线 ${this.clients.size}）` })
+    const tag = client.internal ? '内部通道' : (client.name || '未报名')
+    this.onLog({ level: 'info', msg: `${client.ip}（${tag}）已断开（在线 ${this.online()}）` })
     this.broadcastStats()
   }
 
@@ -111,11 +127,25 @@ class Room {
     let ip = (req.socket && req.socket.remoteAddress) || 'unknown'
     // IPv6 映射写法 ::ffff:192.168.1.5
     if (ip.startsWith('::ffff:')) ip = ip.slice(7)
+    // 本机回环可能不是"真人"：cloudflared 等反代跑在本机，外部用户经它进来时
+    // TCP 对端是回环。只有回环才信任转发头（直连时 remoteAddress 改不了，
+    // 局域网用户伪造不了头冒充别人），取隧道透传的真实来源 IP。
+    if (ip === '127.0.0.1' || ip === '::1') {
+      const fwd = req.headers || {}
+      const real = String(fwd['cf-connecting-ip'] || '').trim() ||
+        String(fwd['x-forwarded-for'] || '').split(',')[0].trim()
+      if (real) ip = real
+    }
     return ip
   }
 
   online () {
-    return this.clients.size
+    // 主机内部发送通道（internal）不算真实设备
+    let n = 0
+    for (const c of this.clients.values()) {
+      if (!c.internal) n++
+    }
+    return n
   }
 
   // ---------------------------------------------------------------- 消息处理
@@ -233,6 +263,13 @@ class Room {
     // 原样存昵称（可能为空）：显示名在 publish 里统一决定，这里不预设"匿名"
     const name = normalizeText(msg.name).slice(0, LIMITS.NAME_MAX)
 
+    // 主机内部发送通道：主机进程自连的 ws 客户端，不占在线设备数
+    if (!client.internal && msg.internal === true) {
+      client.internal = true
+      this.onLog({ level: 'info', msg: '主机内部发送通道已接入（不计入在线数）' })
+      this.broadcastStats()
+    }
+
     // 服务器设了房间口令：HELLO 里的口令决定发送权限，不对就降级为"只看"
     if (cfg.roomToken) {
       const token = String(msg.token || '')
@@ -288,11 +325,24 @@ class Room {
       position: msg.position,
       stayMs: msg.stayMs,
       style: msg.style,
+      image: msg.image,
       fallbackName: client.name,
-      rateKey: client.role === 'admin' ? 'console' : client.key
+      // 限流按"连接"而不是按 IP：同一台机器上网页发送端 + 加入端桌宠
+      // 是两个独立的使用者，共享一个 IP 桶会互相吃掉配额（网页发几条，
+      // 桌宠立刻"发得太快了"）。防刷场景里恶意方本来就能随意重连，
+      // 按连接限额已经足够。
+      rateKey: client.role === 'admin' ? 'console' : client.id,
+      logIp: client.ip
     })
-    if (!result.ok) return this.reject(ws, result.code, msg.reqId)
+    if (!result.ok) {
+      const who = `${client.ip}${client.name ? `（${client.name}）` : ''}`
+      this.onLog({ level: 'warn', msg: `发送被拒（${REJECT_TEXT[result.code] || result.code}）：${who}${result.detail ? '，' + result.detail : ''}` })
+      return this.reject(ws, result.code, msg.reqId, result.detail)
+    }
     client.name = result.item.name // 记住这次用的昵称，下次不填就用它
+    const preview = result.item.text.length > 24 ? result.item.text.slice(0, 24) + '…' : result.item.text
+    const imgTag = result.item.image ? '【图片】' : ''
+    this.onLog({ level: 'info', msg: `弹幕发出：${result.item.name}（${client.ip}）${imgTag}${preview}` })
     this.sendTo(ws, { type: MSG.ACK, reqId: msg.reqId, ok: true, id: result.item.id })
   }
 
@@ -302,7 +352,7 @@ class Room {
    * 避免"本机发的不受限流"这种双标。
    * mode='fixed' 为控制台固定弹幕：不滚动，落点上/中/下，停留 stayMs 后消失。
    */
-  publish ({ text, name, color, size, fallbackName, rateKey, logIp, mode = 'scroll', position, stayMs, style }) {
+  publish ({ text, name, color, size, fallbackName, rateKey, logIp, mode = 'scroll', position, stayMs, style, image }) {
     const cfg = this.getConfig()
     const isFixed = mode === 'fixed'
 
@@ -311,13 +361,26 @@ class Room {
     if (!this.take(rateKey)) return { ok: false, code: REJECT.RATE_LIMIT }
 
     const clean = normalizeText(text)
-    if (!clean) return { ok: false, code: REJECT.EMPTY }
+    const hasImage = image !== undefined && image !== null && image !== ''
+    if (!clean && !hasImage) return { ok: false, code: REJECT.EMPTY }
     if (clean.length > LIMITS.TEXT_MAX) return { ok: false, code: REJECT.TOO_LONG }
 
     const hit = this.matchBlocked(clean, cfg.blockedWords)
     if (hit) {
       this.onLog({ level: 'warn', msg: `拦截屏蔽词「${hit}」来自 ${logIp || rateKey}` })
-      return { ok: false, code: REJECT.BLOCKED }
+      return { ok: false, code: REJECT.BLOCKED, detail: `包含屏蔽词「${hit}」` }
+    }
+
+    // 图片弹幕：先校验（快速失败给明确原因），再过独立限流（防刷图）。
+    // 间隔秒数控制台可调（cfg.imageRateSec，0 = 不限流），拒绝提示带实际秒数。
+    if (hasImage) {
+      const bad = this.validateImageData(image)
+      if (bad === 'large') return { ok: false, code: REJECT.IMAGE_TOO_LARGE }
+      if (bad) return { ok: false, code: REJECT.IMAGE_BAD_FORMAT }
+      const imgSec = Math.max(0, Math.min(600, Math.round(Number(cfg.imageRateSec ?? 15)) || 0))
+      if (imgSec > 0 && !this.takeWith(`${rateKey}|img`, LIMITS.IMAGE_RATE_MAX, imgSec * 1000)) {
+        return { ok: false, code: REJECT.IMAGE_RATE_LIMIT, detail: `图片限流：${imgSec} 秒一张（控制台可调）` }
+      }
     }
 
     // 显示名统一在这里定，客户端传什么都不算数：
@@ -348,6 +411,7 @@ class Room {
       item.stayMs = Math.round(clamp(stayMs, LIMITS.STAY_MS_MIN, LIMITS.STAY_MS_MAX, LIMITS.STAY_MS_DEFAULT))
       item.style = ['bubble', 'card', 'plain'].includes(style) ? style : 'card'
     }
+    if (hasImage) item.image = image
 
     this.pushHistory(item)
     this.broadcast({ type: MSG.DANMAKU, item })
@@ -396,8 +460,8 @@ class Room {
     return result
   }
 
-  reject (ws, code, reqId) {
-    this.sendTo(ws, { type: MSG.REJECT, code, msg: REJECT_TEXT[code] || '发送失败', reqId })
+  reject (ws, code, reqId, customMsg) {
+    this.sendTo(ws, { type: MSG.REJECT, code, msg: customMsg || REJECT_TEXT[code] || '发送失败', reqId })
   }
 
   matchBlocked (text, words) {
@@ -414,15 +478,42 @@ class Room {
 
   take (key) {
     const { rateMax, rateWindowMs } = this.getConfig()
+    return this.takeWith(key, rateMax, rateWindowMs)
+  }
+
+  /** 通用限流：文字用配置的桶，图片用独立更严的桶（15s 一张），互不挤占 */
+  takeWith (key, max, windowMs) {
     const now = Date.now()
     let bucket = this.buckets.get(key)
-    if (!bucket || now - bucket.start >= rateWindowMs) {
+    if (!bucket || now - bucket.start >= windowMs) {
       bucket = { start: now, count: 0 }
       this.buckets.set(key, bucket)
     }
-    if (bucket.count >= rateMax) return false
+    if (bucket.count >= max) return false
     bucket.count += 1
     return true
+  }
+
+  /** 图片魔数校验：dataURL 头 + 解码后文件签名双重确认，大小按解码后口径算 */
+  validateImageData (dataUrl) {
+    if (typeof dataUrl !== 'string' || !IMAGE_MIME_RE.test(dataUrl)) return 'format'
+    const b64 = dataUrl.slice(dataUrl.indexOf(',') + 1)
+    let buf
+    try {
+      buf = Buffer.from(b64, 'base64')
+    } catch {
+      return 'format'
+    }
+    if (!buf || buf.length < 16) return 'format'
+    if (buf.length > LIMITS.IMAGE_MAX_BYTES) return 'large'
+    // 文件签名：png 89504E47 / jpeg FFD8FF / gif "GIF8" / webp "RIFF....WEBP"
+    const head = buf.subarray(0, 12)
+    const isPng = head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4E && head[3] === 0x47
+    const isJpeg = head[0] === 0xFF && head[1] === 0xD8 && head[2] === 0xFF
+    const isGif = head.toString('ascii', 0, 4) === 'GIF8'
+    const isWebp = head.toString('ascii', 0, 4) === 'RIFF' && head.toString('ascii', 8, 12) === 'WEBP'
+    if (!isPng && !isJpeg && !isGif && !isWebp) return 'format'
+    return null
   }
 
   // ---------------------------------------------------------------- 广播
@@ -447,7 +538,7 @@ class Room {
   }
 
   broadcastStats () {
-    const online = this.clients.size
+    const online = this.online()
     this.broadcast({ type: MSG.STATS, online })
     this.onStats({ online })
   }
@@ -458,6 +549,18 @@ class Room {
     this.history.push(item)
     if (this.history.length > LIMITS.HISTORY_MAX) {
       this.history.splice(0, this.history.length - LIMITS.HISTORY_MAX)
+    }
+    // 图片是内存大户（一张可到 1MB）：历史只保留最近 N 张，
+    // 更老的把 dataURL 摘掉，留文字占位 —— 新连接拿历史不会拖爆内存
+    let keep = 0
+    for (let i = this.history.length - 1; i >= 0; i--) {
+      const it = this.history[i]
+      if (!it.image) continue
+      keep++
+      if (keep > LIMITS.IMAGE_HISTORY_KEEP) {
+        delete it.image
+        if (!it.text) it.text = '[图片]'
+      }
     }
   }
 

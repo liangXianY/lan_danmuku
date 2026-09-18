@@ -13,6 +13,7 @@ const path = require('path')
 const http = require('http')
 const WebSocket = require('ws')
 const { DanmakuServer } = require('../src/main/server')
+const { JoinClient, parseHostInput } = require('../src/main/join-client')
 const { MSG, LIMITS } = require('../src/shared/protocol')
 
 const PORT = 17321
@@ -63,8 +64,8 @@ function waitFor (ws, predicate, timeout = 4000) {
  * 如果等 open 的 Promise resolve 之后再挂监听，那条消息会被静默丢掉（真实发送页没这个问题，
  * 它的监听在 new WebSocket 之后立即挂载）。
  */
-function openClient (port) {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}`)
+function openClient (port, query) {
+  const ws = new WebSocket(`ws://127.0.0.1:${port}${query ? '?' + query : ''}`)
   const inbox = []
   const waiters = []
 
@@ -264,6 +265,8 @@ async function main () {
   check('本机发送超长被拒',
     server.room.publishLocal({ text: 'a'.repeat(LIMITS.TEXT_MAX + 1) }).code === 'TOO_LONG')
   check('本机发送同样过屏蔽词', server.room.publishLocal({ text: '来点广告' }).code === 'BLOCKED')
+  // 拒绝明细带上具体命中词 —— 发送端提示条能说清"为什么发不出去"
+  check('屏蔽词拒绝带具体命中词', (server.room.publish({ text: '来点广告', rateKey: 'detail-test' }).detail || '').includes('屏蔽词'))
 
   console.log('\n— 控制台固定弹幕（publishFixed）—')
 
@@ -297,6 +300,80 @@ async function main () {
   check('暂停时发送被拒', paused.code === 'PAUSED')
   config.paused = false
 
+  console.log('\n— 图片弹幕 —')
+
+  // 1x1 透明 png（标准 base64），服务端魔数校验认它
+  const PNG_1PX = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
+
+  const imgOk = server.room.publish({ text: '看看这个', image: PNG_1PX, name: '小梁', rateKey: 'img-test', logIp: 'test' })
+  check('图片弹幕发布成功（图+文）', imgOk.ok === true && !!imgOk.item.image && imgOk.item.text === '看看这个')
+  check('纯图片（无文字）也能发', server.room.publish({ text: '', image: PNG_1PX, rateKey: 'img-test2' }).ok === true)
+  check('空文字空图被拒', server.room.publish({ text: '   ', rateKey: 'img-test3' }).code === 'EMPTY')
+
+  const bigImg = 'data:image/png;base64,' + Buffer.alloc(1024 * 1024 + 100, 1).toString('base64')
+  check('超过 1MB 的图片被拒', server.room.publish({ text: '大图', image: bigImg, rateKey: 'img-test4' }).code === 'IMAGE_TOO_LARGE')
+
+  const fakeImg = 'data:image/png;base64,' + Buffer.from('hello world, definitely not a png image!!').toString('base64')
+  check('伪图片（魔数不对）被拒', server.room.publish({ text: '假的', image: fakeImg, rateKey: 'img-test5' }).code === 'IMAGE_BAD_FORMAT')
+  check('非法 dataURL 头被拒', server.room.publish({ text: 'x', image: 'data:text/html;base64,PGgxPjwvaDE+', rateKey: 'img-test6' }).code === 'IMAGE_BAD_FORMAT')
+
+  // 图片限流独立于文字：img-test 桶在第一条用例已消耗，15s 内同源第二张应被拒
+  check('图片限流（15s 一张，独立于文字配额）',
+    server.room.publish({ text: '连发', image: PNG_1PX, rateKey: 'img-test' }).code === 'IMAGE_RATE_LIMIT')
+
+  // 图片限流间隔控制台可调：0 = 不限流，同桶第二张立即放行
+  config.imageRateSec = 0
+  check('图片限流可配置（0=不限流，第二张立即放行）',
+    server.room.publish({ text: '不限', image: PNG_1PX, rateKey: 'img-test' }).ok === true)
+  config.imageRateSec = 2
+  check('图片限流可配置（自定义窗口内仍拦截）',
+    server.room.publish({ text: '自定', image: PNG_1PX, rateKey: 'img-test2' }).code === 'IMAGE_RATE_LIMIT')
+  config.imageRateSec = undefined
+
+  for (let i = 0; i < 4; i++) {
+    server.room.publish({ text: '图' + i, image: PNG_1PX, name: 'h' + i, rateKey: 'hist-' + i })
+  }
+  const withImg = server.room.history.filter(it => it.image)
+  check('历史最多保留 3 张图', withImg.length === 3, `当前 ${withImg.length} 张`)
+  const oldest = server.room.history.find(it => it.text === '图0')
+  check('超出的老图降级为文字占位', !!oldest && !oldest.image)
+
+  // ws 全链路：前面固定弹幕区块把 rateMax 压到 5，a 的文字桶早已耗尽，先恢复
+  config.rateMax = 100
+  a.send({ type: MSG.SEND, reqId: 'im1', text: 'ws发图', image: PNG_1PX, name: '小梁' })
+  const imAck = await a.waitFor(m => (m.type === MSG.ACK || m.type === MSG.REJECT) && m.reqId === 'im1')
+  check('ws 通道图片弹幕拿到回执', imAck.type === MSG.ACK, `收到 ${imAck.type}:${imAck.code || 'ok'}`)
+  const imgBroadcast = await b.waitFor(m => m.type === MSG.DANMAKU && m.item.image && m.item.text === 'ws发图')
+  check('图片弹幕广播到其他客户端', imgBroadcast.item.text === 'ws发图')
+
+  // ws 纯图：桌宠纯图发送走的就是这条路径（b 的图片桶还没用过，a 已被 im1 占掉）
+  b.send({ type: MSG.SEND, reqId: 'im2', text: '', image: PNG_1PX, name: '小梁' })
+  const im2Ack = await b.waitFor(m => (m.type === MSG.ACK || m.type === MSG.REJECT) && m.reqId === 'im2')
+  check('ws 通道纯图（无文字）拿到回执', im2Ack.type === MSG.ACK, `收到 ${im2Ack.type}:${im2Ack.code || 'ok'}`)
+  const im2Bc = await a.waitFor(m => m.type === MSG.DANMAKU && m.item.image && m.item.text === '')
+  check('ws 纯图广播带图且文字为空', im2Bc.item.image === PNG_1PX)
+
+  // JoinClient 类级回归：0.5.5 前 DANMAKU 入口只认 text，加入端收纯图广播被整条丢弃
+  // （控制台有记录、加入端弹幕层和页面全没有）。冒烟的裸 ws 客户端测不到这层，必须用真实类。
+  const jcGot = []
+  const jc = new JoinClient({ onLog: () => {} })
+  jc.onDanmaku = item => jcGot.push(item)
+  try {
+    await new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error('JoinClient 连接超时')), 4000)
+      jc.onStatus = status => { if (status === 'open') { clearTimeout(t); resolve() } }
+      jc.connect('127.0.0.1:' + port)
+    })
+    const jcAck = await jc.send({ text: '', image: PNG_1PX, name: 'jc纯图' }).then(() => 'ok').catch(e => e.message)
+    check('JoinClient 发纯图拿到回执', jcAck === 'ok', jcAck)
+    await sleep(200)
+    check('JoinClient 收到纯图广播（加入端链路不再过滤纯图）',
+      !!jcGot.find(it => it.image && it.text === ''), `收到 ${jcGot.length} 条`)
+  } catch (e) {
+    check('JoinClient 纯图链路', false, e.message)
+  }
+  jc.disconnect()
+
   console.log('\n— 限流 —')
 
   // 等上一个限流窗口过期，避免和前面的测试互相干扰
@@ -307,6 +384,16 @@ async function main () {
   a.send({ type: MSG.SEND, reqId: 'l3', text: '限流3' })
   const limited = await a.waitFor(m => m.type === MSG.REJECT && m.reqId === 'l3')
   check('超出速率被拒', limited.code === 'RATE_LIMIT')
+
+  // 同机两个连接（同 IP）各自有配额 —— 网页发送端 + 加入端桌宠是两个独立使用者，
+  // 不能因为共享一个 IP 就互相吃掉限流配额（回归：曾按 IP 共桶导致桌宠被网页挤掉）
+  const d = openClient(port)
+  await d.opened
+  d.send({ type: MSG.SEND, reqId: 'd1', text: '另一个连接不受别人限流影响' })
+  const dAck = await d.waitFor(m => (m.type === MSG.ACK || m.type === MSG.REJECT) && m.reqId === 'd1')
+  check('限流按连接隔离（同 IP 不共享配额）', dAck.type === MSG.ACK, `收到 ${dAck.type}:${dAck.code || 'ok'}`)
+  d.ws.close()
+
   config.rateMax = 100
 
   console.log('\n— 断线清理 —')
@@ -333,7 +420,33 @@ async function main () {
   server.room.onDanmaku = () => {}
   server.room.onStats = () => {}
 
-  const { JoinClient, parseHostInput } = require('../src/main/join-client')
+  // 主机内部发送通道：进程自连的 ws 客户端，不计入在线设备数
+  const hidden = openClient(port2)
+  await hidden.opened
+  hidden.send({ type: MSG.HELLO, reqId: 'hi1', internal: true })
+  await hidden.waitFor(m => m.type === MSG.ACK && m.reqId === 'hi1')
+  check('内部通道不占在线数', server.room.online() === 0, `online=${server.room.online()}`)
+  hidden.ws.close()
+  await sleep(100)
+
+  // 连接 URL 带 ?internal=1：addClient 阶段就识别，不等 HELLO。
+  // （回归：曾只在 HELLO 才标记，主机自连时先打出误导性的「127.0.0.1 已连接（在线 1）」，
+  //   刚启动无人连接却显示在线 1 就是这么来的）
+  const viaUrl = openClient(port2, 'internal=1')
+  await viaUrl.opened
+  check('URL 标记的内部通道连接即识别（不等 HELLO）', server.room.online() === 0, `online=${server.room.online()}`)
+  viaUrl.ws.close()
+  await sleep(100)
+
+  // 隧道场景 IP 解析：cloudflared 跑在本机，外部用户经它进来 TCP 对端是回环，
+  // 必须取转发头里的真实 IP；非回环直连不信任头（防局域网伪造他人 IP）。
+  check('回环 + CF 头解析出真实 IP',
+    server.room.clientIp({ socket: { remoteAddress: '127.0.0.1' }, headers: { 'cf-connecting-ip': '203.0.113.7' } }) === '203.0.113.7')
+  check('回环 + XFF 取第一个 IP',
+    server.room.clientIp({ socket: { remoteAddress: '::ffff:127.0.0.1' }, headers: { 'x-forwarded-for': '198.51.100.9, 10.0.0.1' } }) === '198.51.100.9')
+  check('非回环直连不信任代理头（防伪造）',
+    server.room.clientIp({ socket: { remoteAddress: '192.168.1.8' }, headers: { 'cf-connecting-ip': '203.0.113.99' } }) === '192.168.1.8')
+
   const parsedAddr = parseHostInput(`127.0.0.1:${port2}`)
   check('主机地址解析', !!parsedAddr && parsedAddr.origin === `http://127.0.0.1:${port2}` &&
     parsedAddr.wsUrl === `ws://127.0.0.1:${port2}`)

@@ -38,6 +38,8 @@
     saveRoomToken: $('saveRoomToken'),
     roomTokenTip: $('roomTokenTip'),
     anonMode: $('anonMode'),
+    imageRate: $('imageRate'),
+    saveImageRate: $('saveImageRate'),
     fixedText: $('fixedText'),
     fixedPosition: $('fixedPosition'),
     fixedStay: $('fixedStay'),
@@ -233,6 +235,11 @@
 
     els.anonMode.checked = !!cfg.forceNickname
 
+    // 图片间隔：0 表示不限流；用户正在输入时不回推
+    if (document.activeElement !== els.imageRate) {
+      els.imageRate.value = String(Math.max(0, Math.round(Number(cfg.imageRateSec ?? 5))))
+    }
+
     applying = false
   }
 
@@ -319,6 +326,22 @@
         : '强制实名已关闭：允许匿名发言',
       ts: Date.now()
     })
+  })
+
+  function pushImageRate () {
+    const v = Number(els.imageRate.value)
+    if (!Number.isFinite(v) || v < 0 || v > 600) return
+    const sec = Math.round(v)
+    api.setConfig({ imageRateSec: sec })
+    appendLog({
+      level: 'info',
+      msg: sec > 0 ? `图片发送间隔已设为 ${sec} 秒，改动即时生效` : '图片限流已关闭（间隔 0）',
+      ts: Date.now()
+    })
+  }
+  els.saveImageRate.addEventListener('click', pushImageRate)
+  els.imageRate.addEventListener('keydown', e => {
+    if (e.key === 'Enter') pushImageRate()
   })
 
   els.copyBtn.addEventListener('click', () => api.action('copy-url'))
@@ -464,8 +487,27 @@
 
   // ---------------------------------------------------------------- 数据流
 
+  /** 图片弹幕点开看原图：极简全屏遮罩，点击关闭（页面本无 lightbox，动态造一个）。
+   *  用 style.display 切换显隐——inline 的 display:flex 会压过 hidden 属性，点关不掉 */
+  function openImageLightbox (src) {
+    let mask = document.getElementById('imgLightbox')
+    if (!mask) {
+      mask = document.createElement('div')
+      mask.id = 'imgLightbox'
+      mask.style.cssText = 'position:fixed;inset:0;background:rgba(20,20,22,.86);align-items:center;justify-content:center;z-index:9999;cursor:zoom-out;display:none'
+      const img = document.createElement('img')
+      img.alt = '查看大图'
+      img.style.cssText = 'max-width:92vw;max-height:88vh;border-radius:8px'
+      mask.appendChild(img)
+      mask.addEventListener('click', () => { mask.style.display = 'none' })
+      document.body.appendChild(mask)
+    }
+    mask.querySelector('img').src = src
+    mask.style.display = 'flex'
+  }
+
   function addRecent (item) {
-    if (!item || !item.text) return
+    if (!item || (!item.text && !item.image)) return
     const empty = els.recent.querySelector('.empty')
     if (empty) empty.remove()
 
@@ -483,13 +525,27 @@
     const name = document.createElement('span')
     name.className = 'who'
     name.textContent = item.name || '匿名'
-    const msg = document.createElement('span')
-    msg.className = 'msg'
-    msg.textContent = item.text
-    msg.style.color = item.color || 'inherit'
 
     li.appendChild(name)
-    li.appendChild(msg)
+
+    if (item.image) {
+      // 图片弹幕：缩略图挂列表里，点开看原图（纯图时没有文字段）
+      const thumb = document.createElement('img')
+      thumb.className = 'thumb'
+      thumb.src = item.image
+      thumb.alt = '图片弹幕'
+      thumb.style.cssText = 'display:block;max-width:160px;max-height:72px;border-radius:6px;margin-top:4px;cursor:zoom-in'
+      thumb.addEventListener('click', () => openImageLightbox(item.image))
+      li.appendChild(thumb)
+    }
+
+    if (item.text) {
+      const msg = document.createElement('span')
+      msg.className = 'msg'
+      msg.textContent = item.text
+      msg.style.color = item.color || 'inherit'
+      li.appendChild(msg)
+    }
     els.recent.insertBefore(li, els.recent.firstChild)
     while (els.recent.children.length > 60) els.recent.removeChild(els.recent.lastChild)
   }

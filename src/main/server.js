@@ -26,7 +26,8 @@ const MIME = {
 const DEFAULT_ALLOWED_PREFIX = ['sender/', 'shared/']
 
 const WEB_ROOT = path.resolve(__dirname, '..')
-const MAX_WS_MESSAGE = 4096
+// 图片弹幕走 base64 内嵌（1MB 解码 ≈ 1.37MB base64 + JSON 开销），留足余量
+const MAX_WS_MESSAGE = 3 * 1024 * 1024
 const PORT_PROBE_RANGE = 20
 const HEARTBEAT_MS = 30000
 
